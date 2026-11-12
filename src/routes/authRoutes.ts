@@ -9,3 +9,4 @@ router.post('/logout', authenticateToken, (req, res, next) => authController.log
 router.get('/me', authenticateToken, (req, res, next) => authController.me(req, res, next));
 
 export default router;
+

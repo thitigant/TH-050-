@@ -1,6 +1,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import authRoutes from './routes/authRoutes.js';
+import protectedRoutes from './routes/protectedRoutes.js';
 
 export const app = express();
 
@@ -12,9 +13,13 @@ app.get('/api/health', (_req: Request, res: Response) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Mount authentication routes on both /api/auth and /api/v1/auth
+// Mount authentication routes on /api/auth and /api/v1/auth
 app.use('/api/auth', authRoutes);
 app.use('/api/v1/auth', authRoutes);
+
+// Mount role & ownership protected routes
+app.use('/api', protectedRoutes);
+app.use('/api/v1', protectedRoutes);
 
 // 404 handler for unmatched routes
 app.use((_req: Request, res: Response) => {

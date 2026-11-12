@@ -13,3 +13,4 @@ export interface AuthUser {
   name: string;
   role: Role;
 }
+
