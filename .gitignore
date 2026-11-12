@@ -1,1 +1,7 @@
 group_project_spec_files/
+node_modules/
+dist/
+.env
+.env.local
+coverage/
+*.log
