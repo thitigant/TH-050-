@@ -2,6 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import authRoutes from './routes/authRoutes.js';
 import protectedRoutes from './routes/protectedRoutes.js';
+import surveyRoutes from './routes/surveyRoutes.js';
 
 export const app = express();
 
@@ -16,6 +17,10 @@ app.get('/api/health', (_req: Request, res: Response) => {
 // Mount authentication routes on /api/auth and /api/v1/auth
 app.use('/api/auth', authRoutes);
 app.use('/api/v1/auth', authRoutes);
+
+// Mount survey management routes
+app.use('/api/surveys', surveyRoutes);
+app.use('/api/v1/surveys', surveyRoutes);
 
 // Mount role & ownership protected routes
 app.use('/api', protectedRoutes);
