@@ -12,7 +12,8 @@ describe('F-05 Survey Lifecycle Management (Publish & Close)', () => {
   let owner1Id: string;
   let owner2Id: string;
 
-  let surveyWithQuestionsId: string;
+  let surveyToPublishId: string;
+  let surveyToCloseId: string;
   let surveyEmptyId: string;
 
   beforeAll(async () => {
@@ -30,13 +31,13 @@ describe('F-05 Survey Lifecycle Management (Publish & Close)', () => {
     owner2Token = signToken(owner2).token;
     studentToken = signToken(student).token;
 
-    // Create a draft survey with questions for owner1
+    // 1. Create a DRAFT survey with questions for testing publish
     const s1 = await prisma.survey.create({
       data: {
-        id: `srv_test_lifecycle_${Date.now()}`,
+        id: `srv_test_pub_${Date.now()}`,
         ownerId: owner1Id,
-        title: 'Lifecycle Test Survey With Questions',
-        description: 'Test survey for publishing and closing',
+        title: 'Lifecycle Publish Test Survey',
+        description: 'Test survey for publishing',
         status: SurveyStatus.DRAFT,
         updatedAt: new Date(),
         Question: {
@@ -52,10 +53,35 @@ describe('F-05 Survey Lifecycle Management (Publish & Close)', () => {
         },
       },
     });
-    surveyWithQuestionsId = s1.id;
+    surveyToPublishId = s1.id;
 
-    // Create a draft survey with ZERO questions for owner1
+    // 2. Create an already PUBLISHED survey for independent testing of close
     const s2 = await prisma.survey.create({
+      data: {
+        id: `srv_test_close_${Date.now()}`,
+        ownerId: owner1Id,
+        title: 'Lifecycle Close Test Survey',
+        description: 'Test survey already published',
+        status: SurveyStatus.PUBLISHED,
+        publishedAt: new Date(),
+        updatedAt: new Date(),
+        Question: {
+          create: [
+            {
+              id: `qst_test_2_${Date.now()}`,
+              text: 'Feedback question',
+              type: 'SHORT_TEXT',
+              isRequired: true,
+              displayOrder: 1,
+            },
+          ],
+        },
+      },
+    });
+    surveyToCloseId = s2.id;
+
+    // 3. Create a DRAFT survey with ZERO questions for testing empty block
+    const s3 = await prisma.survey.create({
       data: {
         id: `srv_test_empty_${Date.now()}`,
         ownerId: owner1Id,
@@ -65,15 +91,13 @@ describe('F-05 Survey Lifecycle Management (Publish & Close)', () => {
         updatedAt: new Date(),
       },
     });
-    surveyEmptyId = s2.id;
+    surveyEmptyId = s3.id;
   });
 
   afterAll(async () => {
-    if (surveyWithQuestionsId) {
-      await prisma.survey.deleteMany({ where: { id: surveyWithQuestionsId } });
-    }
-    if (surveyEmptyId) {
-      await prisma.survey.deleteMany({ where: { id: surveyEmptyId } });
+    const idsToDelete = [surveyToPublishId, surveyToCloseId, surveyEmptyId].filter(Boolean);
+    if (idsToDelete.length > 0) {
+      await prisma.survey.deleteMany({ where: { id: { in: idsToDelete } } });
     }
     await prisma.$disconnect();
   });
@@ -89,9 +113,9 @@ describe('F-05 Survey Lifecycle Management (Publish & Close)', () => {
       expect(res.body.error.code).toBe('EMPTY_SURVEY_CANNOT_PUBLISH');
     });
 
-    it('TEST-29 (AC-06): should reject Owner A attempting to publish Owner B survey with 403 FORBIDDEN_OWNERSHIP', async () => {
+    it('TEST-29 (AC-06): should reject Owner 2 attempting to publish Owner 1 survey with 403 FORBIDDEN_OWNERSHIP', async () => {
       const res = await request(app)
-        .post(`/api/surveys/${surveyWithQuestionsId}/publish`)
+        .post(`/api/surveys/${surveyToPublishId}/publish`)
         .set('Authorization', `Bearer ${owner2Token}`);
 
       expect(res.status).toBe(403);
@@ -100,7 +124,7 @@ describe('F-05 Survey Lifecycle Management (Publish & Close)', () => {
 
     it('AC-05: should reject Respondent attempting to publish survey with 403 FORBIDDEN_ROLE', async () => {
       const res = await request(app)
-        .post(`/api/surveys/${surveyWithQuestionsId}/publish`)
+        .post(`/api/surveys/${surveyToPublishId}/publish`)
         .set('Authorization', `Bearer ${studentToken}`);
 
       expect(res.status).toBe(403);
@@ -108,27 +132,30 @@ describe('F-05 Survey Lifecycle Management (Publish & Close)', () => {
     });
 
     it('should reject unauthenticated request with 401 UNAUTHORIZED', async () => {
-      const res = await request(app).post(`/api/surveys/${surveyWithQuestionsId}/publish`);
+      const res = await request(app).post(`/api/surveys/${surveyToPublishId}/publish`);
 
       expect(res.status).toBe(401);
       expect(res.body.error.code).toBe('UNAUTHORIZED');
     });
 
-    it('TEST-15 (AC-12): should successfully publish draft survey containing questions with 200 OK', async () => {
+    it('TEST-15 (AC-12): should successfully publish draft survey containing questions with 200 OK and valid non-null publishedAt', async () => {
       const res = await request(app)
-        .post(`/api/surveys/${surveyWithQuestionsId}/publish`)
+        .post(`/api/surveys/${surveyToPublishId}/publish`)
         .set('Authorization', `Bearer ${owner1Token}`);
 
       expect(res.status).toBe(200);
       expect(res.body.data).toBeDefined();
-      expect(res.body.data.id).toBe(surveyWithQuestionsId);
+      expect(res.body.data.id).toBe(surveyToPublishId);
       expect(res.body.data.status).toBe('PUBLISHED');
-      expect(res.body.data.publishedAt).toBeDefined();
+      // Strong assertion: ensure publishedAt is not null and is a valid ISO timestamp
+      expect(res.body.data.publishedAt).not.toBeNull();
+      expect(typeof res.body.data.publishedAt).toBe('string');
+      expect(new Date(res.body.data.publishedAt).getTime()).not.toBeNaN();
     });
 
     it('should reject publishing an already PUBLISHED survey with 400 INVALID_STATE_TRANSITION', async () => {
       const res = await request(app)
-        .post(`/api/surveys/${surveyWithQuestionsId}/publish`)
+        .post(`/api/surveys/${surveyToCloseId}/publish`)
         .set('Authorization', `Bearer ${owner1Token}`);
 
       expect(res.status).toBe(400);
@@ -146,9 +173,9 @@ describe('F-05 Survey Lifecycle Management (Publish & Close)', () => {
       expect(res.body.error.code).toBe('INVALID_STATE_TRANSITION');
     });
 
-    it('TEST-29 (AC-06): should reject Owner A attempting to close Owner B survey with 403 FORBIDDEN_OWNERSHIP', async () => {
+    it('TEST-29 (AC-06): should reject Owner 2 attempting to close Owner 1 survey with 403 FORBIDDEN_OWNERSHIP', async () => {
       const res = await request(app)
-        .post(`/api/surveys/${surveyWithQuestionsId}/close`)
+        .post(`/api/surveys/${surveyToCloseId}/close`)
         .set('Authorization', `Bearer ${owner2Token}`);
 
       expect(res.status).toBe(403);
@@ -157,28 +184,31 @@ describe('F-05 Survey Lifecycle Management (Publish & Close)', () => {
 
     it('AC-05: should reject Respondent attempting to close survey with 403 FORBIDDEN_ROLE', async () => {
       const res = await request(app)
-        .post(`/api/surveys/${surveyWithQuestionsId}/close`)
+        .post(`/api/surveys/${surveyToCloseId}/close`)
         .set('Authorization', `Bearer ${studentToken}`);
 
       expect(res.status).toBe(403);
       expect(res.body.error.code).toBe('FORBIDDEN_ROLE');
     });
 
-    it('TEST-18 (AC-14): should successfully close an active published survey with 200 OK', async () => {
+    it('TEST-18 (AC-14): should successfully close an active published survey with 200 OK and valid non-null closedAt', async () => {
       const res = await request(app)
-        .post(`/api/surveys/${surveyWithQuestionsId}/close`)
+        .post(`/api/surveys/${surveyToCloseId}/close`)
         .set('Authorization', `Bearer ${owner1Token}`);
 
       expect(res.status).toBe(200);
       expect(res.body.data).toBeDefined();
-      expect(res.body.data.id).toBe(surveyWithQuestionsId);
+      expect(res.body.data.id).toBe(surveyToCloseId);
       expect(res.body.data.status).toBe('CLOSED');
-      expect(res.body.data.closedAt).toBeDefined();
+      // Strong assertion: ensure closedAt is not null and is a valid ISO timestamp
+      expect(res.body.data.closedAt).not.toBeNull();
+      expect(typeof res.body.data.closedAt).toBe('string');
+      expect(new Date(res.body.data.closedAt).getTime()).not.toBeNaN();
     });
 
     it('should reject closing an already CLOSED survey with 400 INVALID_STATE_TRANSITION', async () => {
       const res = await request(app)
-        .post(`/api/surveys/${surveyWithQuestionsId}/close`)
+        .post(`/api/surveys/${surveyToCloseId}/close`)
         .set('Authorization', `Bearer ${owner1Token}`);
 
       expect(res.status).toBe(400);

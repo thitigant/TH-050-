@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { prisma } from '../db/prisma.js';
 import { CreateSurveyInput } from '../validators/surveyValidator.js';
 import { SurveyStatus, ResponseMode } from '@prisma/client';
+import { AppError } from '../utils/errors.js';
 
 export class SurveyService {
   async createDraftSurvey(ownerId: string, input: CreateSurveyInput) {
@@ -108,45 +109,68 @@ export class SurveyService {
     const survey = await prisma.survey.findUnique({
       where: { id: surveyId },
       include: {
-        Question: true,
+        _count: {
+          select: { Question: true },
+        },
       },
     });
 
     if (!survey) {
-      const error: any = new Error('Survey not found');
-      error.statusCode = 404;
-      error.code = 'SURVEY_NOT_FOUND';
-      throw error;
+      throw new AppError(404, 'SURVEY_NOT_FOUND', 'Survey not found');
     }
 
     if (survey.ownerId !== ownerId) {
-      const error: any = new Error('Access denied. You do not own this survey.');
-      error.statusCode = 403;
-      error.code = 'FORBIDDEN_OWNERSHIP';
-      throw error;
+      throw new AppError(403, 'FORBIDDEN_OWNERSHIP', 'Access denied. You do not own this survey.');
     }
 
     if (survey.status !== SurveyStatus.DRAFT) {
-      const error: any = new Error(`Cannot publish survey with status '${survey.status}'. Must be DRAFT.`);
-      error.statusCode = 400;
-      error.code = 'INVALID_STATE_TRANSITION';
-      throw error;
+      throw new AppError(
+        400,
+        'INVALID_STATE_TRANSITION',
+        `Cannot publish survey with status '${survey.status}'. Must be DRAFT.`
+      );
     }
 
-    if (!survey.Question || survey.Question.length === 0) {
-      const error: any = new Error('Cannot publish a survey with zero questions. Add at least 1 question.');
-      error.statusCode = 422;
-      error.code = 'EMPTY_SURVEY_CANNOT_PUBLISH';
-      throw error;
+    if (survey._count.Question === 0) {
+      throw new AppError(
+        422,
+        'EMPTY_SURVEY_CANNOT_PUBLISH',
+        'Cannot publish a survey with zero questions. Add at least 1 question.'
+      );
     }
 
-    return prisma.survey.update({
-      where: { id: surveyId },
+    const now = new Date();
+    // Atomic state transition to prevent concurrent race conditions
+    const updateResult = await prisma.survey.updateMany({
+      where: {
+        id: surveyId,
+        ownerId,
+        status: SurveyStatus.DRAFT,
+      },
       data: {
         status: SurveyStatus.PUBLISHED,
-        publishedAt: new Date(),
-        updatedAt: new Date(),
+        publishedAt: now,
+        updatedAt: now,
       },
+    });
+
+    if (updateResult.count === 0) {
+      const current = await prisma.survey.findUnique({ where: { id: surveyId } });
+      if (!current) {
+        throw new AppError(404, 'SURVEY_NOT_FOUND', 'Survey not found');
+      }
+      if (current.ownerId !== ownerId) {
+        throw new AppError(403, 'FORBIDDEN_OWNERSHIP', 'Access denied. You do not own this survey.');
+      }
+      throw new AppError(
+        400,
+        'INVALID_STATE_TRANSITION',
+        `Cannot publish survey with status '${current.status}'. Must be DRAFT.`
+      );
+    }
+
+    return prisma.survey.findUnique({
+      where: { id: surveyId },
       include: {
         Question: {
           orderBy: { displayOrder: 'asc' },
@@ -166,35 +190,53 @@ export class SurveyService {
     });
 
     if (!survey) {
-      const error: any = new Error('Survey not found');
-      error.statusCode = 404;
-      error.code = 'SURVEY_NOT_FOUND';
-      throw error;
+      throw new AppError(404, 'SURVEY_NOT_FOUND', 'Survey not found');
     }
 
     if (survey.ownerId !== ownerId) {
-      const error: any = new Error('Access denied. You do not own this survey.');
-      error.statusCode = 403;
-      error.code = 'FORBIDDEN_OWNERSHIP';
-      throw error;
+      throw new AppError(403, 'FORBIDDEN_OWNERSHIP', 'Access denied. You do not own this survey.');
     }
 
     if (survey.status !== SurveyStatus.PUBLISHED) {
-      const error: any = new Error(
+      throw new AppError(
+        400,
+        'INVALID_STATE_TRANSITION',
         `Cannot close survey with status '${survey.status}'. Only PUBLISHED surveys can be closed.`
       );
-      error.statusCode = 400;
-      error.code = 'INVALID_STATE_TRANSITION';
-      throw error;
     }
 
-    return prisma.survey.update({
-      where: { id: surveyId },
+    const now = new Date();
+    // Atomic state transition
+    const updateResult = await prisma.survey.updateMany({
+      where: {
+        id: surveyId,
+        ownerId,
+        status: SurveyStatus.PUBLISHED,
+      },
       data: {
         status: SurveyStatus.CLOSED,
-        closedAt: new Date(),
-        updatedAt: new Date(),
+        closedAt: now,
+        updatedAt: now,
       },
+    });
+
+    if (updateResult.count === 0) {
+      const current = await prisma.survey.findUnique({ where: { id: surveyId } });
+      if (!current) {
+        throw new AppError(404, 'SURVEY_NOT_FOUND', 'Survey not found');
+      }
+      if (current.ownerId !== ownerId) {
+        throw new AppError(403, 'FORBIDDEN_OWNERSHIP', 'Access denied. You do not own this survey.');
+      }
+      throw new AppError(
+        400,
+        'INVALID_STATE_TRANSITION',
+        `Cannot close survey with status '${current.status}'. Only PUBLISHED surveys can be closed.`
+      );
+    }
+
+    return prisma.survey.findUnique({
+      where: { id: surveyId },
     });
   }
 }
