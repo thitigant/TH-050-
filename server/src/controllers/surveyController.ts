@@ -78,6 +78,70 @@ export class SurveyController {
       next(error);
     }
   }
+
+  async publishSurvey(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user) {
+        res.status(401).json({
+          error: {
+            code: 'UNAUTHORIZED',
+            message: 'Authentication required',
+          },
+        });
+        return;
+      }
+
+      const surveyId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const survey = await surveyService.publishSurvey(surveyId, req.user.id);
+
+      res.status(200).json({
+        data: survey,
+      });
+    } catch (error: any) {
+      if (error.statusCode) {
+        res.status(error.statusCode).json({
+          error: {
+            code: error.code || 'SURVEY_ERROR',
+            message: error.message,
+          },
+        });
+        return;
+      }
+      next(error);
+    }
+  }
+
+  async closeSurvey(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user) {
+        res.status(401).json({
+          error: {
+            code: 'UNAUTHORIZED',
+            message: 'Authentication required',
+          },
+        });
+        return;
+      }
+
+      const surveyId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const survey = await surveyService.closeSurvey(surveyId, req.user.id);
+
+      res.status(200).json({
+        data: survey,
+      });
+    } catch (error: any) {
+      if (error.statusCode) {
+        res.status(error.statusCode).json({
+          error: {
+            code: error.code || 'SURVEY_ERROR',
+            message: error.message,
+          },
+        });
+        return;
+      }
+      next(error);
+    }
+  }
 }
 
 export const surveyController = new SurveyController();
