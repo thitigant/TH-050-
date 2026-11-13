@@ -2,6 +2,20 @@ import { Response, NextFunction } from 'express';
 import { AuthenticatedRequest } from '../middleware/authMiddleware.js';
 import { createSurveySchema } from '../validators/surveyValidator.js';
 import { surveyService } from '../services/surveyService.js';
+import { AppError } from '../utils/errors.js';
+
+function handleControllerError(error: any, res: Response, next: NextFunction): void {
+  if (error instanceof AppError || (error && error.statusCode)) {
+    res.status(error.statusCode).json({
+      error: {
+        code: error.code || 'SURVEY_ERROR',
+        message: error.message,
+      },
+    });
+    return;
+  }
+  next(error);
+}
 
 export class SurveyController {
   async createSurvey(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
@@ -76,6 +90,26 @@ export class SurveyController {
         return;
       }
       next(error);
+    }
+  }
+
+  async publishSurvey(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const surveyId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const survey = await surveyService.publishSurvey(surveyId, req.user!.id);
+      res.status(200).json({ data: survey });
+    } catch (error) {
+      handleControllerError(error, res, next);
+    }
+  }
+
+  async closeSurvey(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const surveyId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const survey = await surveyService.closeSurvey(surveyId, req.user!.id);
+      res.status(200).json({ data: survey });
+    } catch (error) {
+      handleControllerError(error, res, next);
     }
   }
 }

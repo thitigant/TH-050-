@@ -19,4 +19,13 @@ router.get('/:id', requireAuth, (req, res, next) =>
   surveyController.getSurvey(req, res, next)
 );
 
+// Lifecycle routes (Publish & Close)
+router.post('/:id/publish', requireAuth, requireRole(Role.SURVEY_OWNER), (req, res, next) =>
+  surveyController.publishSurvey(req, res, next)
+);
+
+router.post('/:id/close', requireAuth, requireRole(Role.SURVEY_OWNER), (req, res, next) =>
+  surveyController.closeSurvey(req, res, next)
+);
+
 export default router;
