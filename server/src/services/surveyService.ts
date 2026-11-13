@@ -72,7 +72,42 @@ export class SurveyService {
     });
   }
 
-  async getSurveyById(surveyId: string, ownerId?: string) {
+  async getPublishedSurveysForRespondent(respondentId: string) {
+    const surveys = await prisma.survey.findMany({
+      where: {
+        status: SurveyStatus.PUBLISHED,
+      },
+      orderBy: {
+        publishedAt: 'desc',
+      },
+      include: {
+        _count: {
+          select: {
+            Question: true,
+            Response: true,
+          },
+        },
+        Response: {
+          where: {
+            respondentId,
+          },
+          select: {
+            id: true,
+          },
+        },
+      },
+    });
+
+    return surveys.map((survey) => {
+      const { Response, ...rest } = survey;
+      return {
+        ...rest,
+        hasSubmitted: Response.length > 0,
+      };
+    });
+  }
+
+  async getSurveyById(surveyId: string, userId?: string) {
     const survey = await prisma.survey.findUnique({
       where: { id: surveyId },
       include: {
@@ -88,21 +123,34 @@ export class SurveyService {
     });
 
     if (!survey) {
-      const error: any = new Error('Survey not found');
-      error.statusCode = 404;
-      error.code = 'SURVEY_NOT_FOUND';
-      throw error;
+      throw new AppError(404, 'SURVEY_NOT_FOUND', 'Survey not found');
     }
 
-    // If survey is DRAFT and requesting user is not owner, block
-    if (survey.status === SurveyStatus.DRAFT && ownerId && survey.ownerId !== ownerId) {
-      const error: any = new Error('Survey not found or access denied');
-      error.statusCode = 404;
-      error.code = 'SURVEY_NOT_FOUND';
-      throw error;
+    // Zero Draft Leakage (NFR-11): If survey is DRAFT and requesting user is not owner, block
+    if (survey.status === SurveyStatus.DRAFT && (!userId || survey.ownerId !== userId)) {
+      throw new AppError(404, 'SURVEY_NOT_FOUND', 'Survey not found');
     }
 
-    return survey;
+    let hasSubmitted = false;
+    if (userId) {
+      const userResponse = await prisma.response.findUnique({
+        where: {
+          surveyId_respondentId: {
+            surveyId,
+            respondentId: userId,
+          },
+        },
+        select: {
+          id: true,
+        },
+      });
+      hasSubmitted = !!userResponse;
+    }
+
+    return {
+      ...survey,
+      hasSubmitted,
+    };
   }
 
   async publishSurvey(surveyId: string, ownerId: string) {

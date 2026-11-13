@@ -10,8 +10,9 @@ router.post('/', requireAuth, requireRole(Role.SURVEY_OWNER), (req, res, next) =
   surveyController.createSurvey(req, res, next)
 );
 
-router.get('/', requireAuth, requireRole(Role.SURVEY_OWNER), (req, res, next) =>
-  surveyController.getMySurveys(req, res, next)
+// List surveys route (Owners get their own surveys; Respondents get published catalog with hasSubmitted flag)
+router.get('/', requireAuth, (req, res, next) =>
+  surveyController.getSurveys(req, res, next)
 );
 
 // Detail route

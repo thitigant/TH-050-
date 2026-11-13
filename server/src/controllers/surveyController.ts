@@ -3,6 +3,7 @@ import { AuthenticatedRequest } from '../middleware/authMiddleware.js';
 import { createSurveySchema } from '../validators/surveyValidator.js';
 import { surveyService } from '../services/surveyService.js';
 import { AppError } from '../utils/errors.js';
+import { Role } from '@prisma/client';
 
 function handleControllerError(error: any, res: Response, next: NextFunction): void {
   if (error instanceof AppError || (error && error.statusCode)) {
@@ -51,7 +52,7 @@ export class SurveyController {
     }
   }
 
-  async getMySurveys(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+  async getSurveys(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       if (!req.user) {
         res.status(401).json({
@@ -63,13 +64,23 @@ export class SurveyController {
         return;
       }
 
-      const surveys = await surveyService.getOwnerSurveys(req.user.id);
+      let surveys;
+      if (req.user.role === Role.RESPONDENT) {
+        surveys = await surveyService.getPublishedSurveysForRespondent(req.user.id);
+      } else {
+        surveys = await surveyService.getOwnerSurveys(req.user.id);
+      }
+
       res.status(200).json({
         data: surveys,
       });
     } catch (error) {
-      next(error);
+      handleControllerError(error, res, next);
     }
+  }
+
+  async getMySurveys(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    return this.getSurveys(req, res, next);
   }
 
   async getSurvey(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
@@ -79,17 +90,8 @@ export class SurveyController {
       res.status(200).json({
         data: survey,
       });
-    } catch (error: any) {
-      if (error.statusCode) {
-        res.status(error.statusCode).json({
-          error: {
-            code: error.code || 'SURVEY_ERROR',
-            message: error.message,
-          },
-        });
-        return;
-      }
-      next(error);
+    } catch (error) {
+      handleControllerError(error, res, next);
     }
   }
 
