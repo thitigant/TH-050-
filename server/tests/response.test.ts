@@ -19,6 +19,8 @@ describe('F-06 & F-07 Response Submission and Duplicate Prevention', () => {
   let publishedSurveyId: string;
   let draftSurveyId: string;
   let closedSurveyId: string;
+  let expiredSurveyId: string;
+  let concurrencySurveyId: string;
 
   let ratingQuestionId: string;
   let choiceQuestionId: string;
@@ -159,12 +161,62 @@ describe('F-06 & F-07 Response Submission and Duplicate Prevention', () => {
       },
     });
     closedSurveyId = sClosed.id;
+
+    // 4. Create an expired PUBLISHED survey (closesAt in the past)
+    const sExpired = await prisma.survey.create({
+      data: {
+        id: `srv_resp_exp_${timestamp}`,
+        ownerId: owner1Id,
+        title: 'Expired Deadline Survey',
+        description: 'Should reject submissions after closesAt',
+        status: SurveyStatus.PUBLISHED,
+        publishedAt: new Date(timestamp - 30000),
+        closesAt: new Date(timestamp - 1000),
+        updatedAt: new Date(),
+        Question: {
+          create: [
+            {
+              id: `qst_exp_${timestamp}`,
+              text: 'Expired question',
+              type: 'SHORT_TEXT',
+              isRequired: true,
+              displayOrder: 1,
+            },
+          ],
+        },
+      },
+    });
+    expiredSurveyId = sExpired.id;
+
+    // 5. Create a survey for concurrency test
+    const sConcurrency = await prisma.survey.create({
+      data: {
+        id: `srv_resp_concur_${timestamp}`,
+        ownerId: owner1Id,
+        title: 'Concurrency Test Survey',
+        description: 'Test parallel submission uniqueness',
+        status: SurveyStatus.PUBLISHED,
+        publishedAt: new Date(timestamp - 5000),
+        updatedAt: new Date(),
+        Question: {
+          create: [
+            {
+              id: `qst_concur_${timestamp}`,
+              text: 'Feedback',
+              type: 'SHORT_TEXT',
+              isRequired: true,
+              displayOrder: 1,
+            },
+          ],
+        },
+      },
+    });
+    concurrencySurveyId = sConcurrency.id;
   });
 
   afterAll(async () => {
-    const surveyIds = [publishedSurveyId, draftSurveyId, closedSurveyId].filter(Boolean);
+    const surveyIds = [publishedSurveyId, draftSurveyId, closedSurveyId, expiredSurveyId, concurrencySurveyId].filter(Boolean);
     if (surveyIds.length > 0) {
-      // Prisma cascade deletes Answers and Responses when Survey is deleted
       await prisma.answer.deleteMany({ where: { Question: { surveyId: { in: surveyIds } } } });
       await prisma.response.deleteMany({ where: { surveyId: { in: surveyIds } } });
       await prisma.survey.deleteMany({ where: { id: { in: surveyIds } } });
@@ -264,6 +316,20 @@ describe('F-06 & F-07 Response Submission and Duplicate Prevention', () => {
       expect(res.body.error.code).toBe('SURVEY_NOT_ACCEPTING_RESPONSES');
     });
 
+    it('BR-05: should reject submission to PUBLISHED survey whose closesAt deadline has passed with 400', async () => {
+      const res = await request(app)
+        .post(`/api/surveys/${expiredSurveyId}/responses`)
+        .set('Authorization', `Bearer ${student2Token}`)
+        .send({
+          answers: [
+            { questionId: `qst_exp_${Date.now()}`, textValue: 'Late answer' },
+          ],
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('SURVEY_NOT_ACCEPTING_RESPONSES');
+    });
+
     it('TEST-21 & TEST-27 (AC-18, BR-07): should reject Survey Owner responding to their own survey with 403 OWNER_CANNOT_RESPOND', async () => {
       const payload = {
         answers: [
@@ -281,6 +347,24 @@ describe('F-06 & F-07 Response Submission and Duplicate Prevention', () => {
       expect(res.status).toBe(403);
       expect(res.body.error).toBeDefined();
       expect(res.body.error.code).toBe('OWNER_CANNOT_RESPOND');
+    });
+
+    it('BR-07: should allow another Survey Owner to submit response to a survey they do not own', async () => {
+      const payload = {
+        answers: [
+          { questionId: ratingQuestionId, ratingValue: 4 },
+          { questionId: choiceQuestionId, selectedOptionId: choiceOption2Id },
+          { questionId: textQuestionId, textValue: 'Owner 2 submitting feedback to Owner 1 survey' },
+        ],
+      };
+
+      const res = await request(app)
+        .post(`/api/surveys/${publishedSurveyId}/responses`)
+        .set('Authorization', `Bearer ${owner2Token}`)
+        .send(payload);
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.answersRecorded).toBe(3);
     });
 
     it('TEST-31 (AC-19): should reject rating answer with value 0 or 6 with 422 RATING_OUT_OF_RANGE', async () => {
@@ -331,16 +415,73 @@ describe('F-06 & F-07 Response Submission and Duplicate Prevention', () => {
       expect(res.body.error.code).toBe('EMPTY_REQUIRED_ANSWER');
     });
 
-    it('should reject missing required question with 422 EMPTY_REQUIRED_ANSWER', async () => {
+    it('should reject text answer exceeding 2000 characters with 400 INVALID_PAYLOAD', async () => {
       const res = await request(app)
         .post(`/api/surveys/${publishedSurveyId}/responses`)
         .set('Authorization', `Bearer ${student2Token}`)
         .send({
           answers: [
             { questionId: ratingQuestionId, numericValue: 4 },
-            // choiceQuestionId is required but omitted
-            { questionId: textQuestionId, textValue: 'Valid text' },
+            { questionId: choiceQuestionId, selectedOptionId: choiceOption1Id },
+            { questionId: textQuestionId, textValue: 'A'.repeat(2001) },
           ],
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('INVALID_PAYLOAD');
+    });
+
+    it('should skip storing empty answer rows for optional questions', async () => {
+      // student2 submits without filling optional question
+      const res = await request(app)
+        .post(`/api/surveys/${publishedSurveyId}/responses`)
+        .set('Authorization', `Bearer ${student2Token}`)
+        .send({
+          answers: [
+            { questionId: ratingQuestionId, numericValue: 4 },
+            { questionId: choiceQuestionId, selectedOptionId: choiceOption2Id },
+            { questionId: textQuestionId, textValue: 'Valid response without optional answer' },
+            { questionId: optionalTextQuestionId, textValue: null }, // empty optional answer
+          ],
+        });
+
+      expect(res.status).toBe(201);
+      // Only 3 answers recorded (empty optional row was skipped)
+      expect(res.body.data.answersRecorded).toBe(3);
+    });
+
+    it('BR-06 concurrency: should gracefully handle parallel submissions where only one succeeds (409 for second)', async () => {
+      // Create a fresh student token for parallel submission on concurrency survey
+      const [res1, res2] = await Promise.all([
+        request(app)
+          .post(`/api/surveys/${concurrencySurveyId}/responses`)
+          .set('Authorization', `Bearer ${student1Token}`)
+          .send({
+            answers: [
+              { questionId: `qst_concur_${Date.now()}`, textValue: 'Concurrent attempt 1' },
+            ],
+          }),
+        request(app)
+          .post(`/api/surveys/${concurrencySurveyId}/responses`)
+          .set('Authorization', `Bearer ${student1Token}`)
+          .send({
+            answers: [
+              { questionId: `qst_concur_${Date.now()}`, textValue: 'Concurrent attempt 2' },
+            ],
+          }),
+      ]);
+
+      const statuses = [res1.status, res2.status].sort();
+      // One request should succeed (201) and one should be rejected as duplicate (409)
+      expect(statuses).toEqual([201, 409]);
+    });
+
+    it('should reject missing required question with 422 EMPTY_REQUIRED_ANSWER', async () => {
+      const res = await request(app)
+        .post(`/api/surveys/${concurrencySurveyId}/responses`)
+        .set('Authorization', `Bearer ${student2Token}`)
+        .send({
+          answers: [],
         });
 
       expect(res.status).toBe(422);
@@ -414,7 +555,7 @@ describe('F-06 & F-07 Response Submission and Duplicate Prevention', () => {
 
     it('should return 404 RESPONSE_NOT_FOUND if respondent has not submitted to this survey', async () => {
       const res = await request(app)
-        .get(`/api/surveys/${publishedSurveyId}/responses/me`)
+        .get(`/api/surveys/${expiredSurveyId}/responses/me`)
         .set('Authorization', `Bearer ${student2Token}`);
 
       expect(res.status).toBe(404);

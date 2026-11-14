@@ -2,30 +2,7 @@ import { Response, NextFunction } from 'express';
 import { AuthenticatedRequest } from '../middleware/authMiddleware.js';
 import { submitResponseSchema } from '../validators/responseValidator.js';
 import { responseService } from '../services/responseService.js';
-import { AppError } from '../utils/errors.js';
-
-function handleControllerError(error: unknown, res: Response, next: NextFunction): void {
-  if (error instanceof AppError) {
-    res.status(error.statusCode).json({
-      error: {
-        code: error.code,
-        message: error.message,
-      },
-    });
-    return;
-  }
-  if (typeof error === 'object' && error !== null && 'statusCode' in error) {
-    const err = error as { statusCode: number; code?: string; message?: string };
-    res.status(err.statusCode).json({
-      error: {
-        code: err.code || 'RESPONSE_ERROR',
-        message: err.message || 'An error occurred',
-      },
-    });
-    return;
-  }
-  next(error);
-}
+import { handleControllerError } from '../utils/errors.js';
 
 export class ResponseController {
   async submitResponse(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
@@ -54,7 +31,7 @@ export class ResponseController {
         data: result,
       });
     } catch (error) {
-      handleControllerError(error, res, next);
+      handleControllerError(error, res, next, 'RESPONSE_ERROR');
     }
   }
 
@@ -67,7 +44,7 @@ export class ResponseController {
         data: response,
       });
     } catch (error) {
-      handleControllerError(error, res, next);
+      handleControllerError(error, res, next, 'RESPONSE_ERROR');
     }
   }
 
@@ -80,7 +57,7 @@ export class ResponseController {
         data: response,
       });
     } catch (error) {
-      handleControllerError(error, res, next);
+      handleControllerError(error, res, next, 'RESPONSE_ERROR');
     }
   }
 }

@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { prisma } from '../db/prisma.js';
 import { SubmitAnswerInput } from '../validators/responseValidator.js';
-import { SurveyStatus, QuestionType } from '@prisma/client';
+import { SurveyStatus, QuestionType, Prisma } from '@prisma/client';
 import { AppError } from '../utils/errors.js';
 
 export class ResponseService {
@@ -28,11 +28,12 @@ export class ResponseService {
     }
 
     // 3. Survey must have status PUBLISHED to accept responses (BR-05, TEST-19, TEST-20)
+    // Note: Returns generic message without disclosing internal status string
     if (survey.status !== SurveyStatus.PUBLISHED) {
       throw new AppError(
         400,
         'SURVEY_NOT_ACCEPTING_RESPONSES',
-        `Survey is not accepting responses. Current status: '${survey.status}'`
+        'Survey is not currently accepting responses'
       );
     }
 
@@ -70,6 +71,17 @@ export class ResponseService {
         throw new AppError(422, 'DUPLICATE_QUESTION_ANSWER', `Multiple answers provided for question '${ans.questionId}'`);
       }
       seenQuestionIds.add(ans.questionId);
+
+      // Check for alias conflict between ratingValue and numericValue
+      if (
+        ans.ratingValue !== null &&
+        ans.ratingValue !== undefined &&
+        ans.numericValue !== null &&
+        ans.numericValue !== undefined &&
+        ans.ratingValue !== ans.numericValue
+      ) {
+        throw new AppError(422, 'INVALID_PAYLOAD', 'Conflicting values provided for ratingValue and numericValue');
+      }
 
       // Validate per question type
       if (q.type === QuestionType.RATING) {
@@ -118,37 +130,49 @@ export class ResponseService {
       }
     }
 
-    // 8. Prepare entity records for atomic write
+    // 8. Prepare entity records for atomic write (filtering out empty answers for optional questions)
     const responseId = `rsp_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
-    const answersData = answersInput.map((ans) => {
+    const answersData: Array<{
+      id: string;
+      questionId: string;
+      selectedOptionId: string | null;
+      ratingValue: number | null;
+      textValue: string | null;
+    }> = [];
+
+    for (const ans of answersInput) {
       const q = questionMap.get(ans.questionId)!;
       const ratingValue = q.type === QuestionType.RATING ? (ans.ratingValue ?? ans.numericValue ?? null) : null;
       const selectedOptionId = q.type === QuestionType.SINGLE_CHOICE ? (ans.selectedOptionId ?? null) : null;
       const textValue = q.type === QuestionType.SHORT_TEXT ? (ans.textValue ? ans.textValue.trim() : null) : null;
 
-      return {
+      // Skip storing empty rows for optional questions if no answer value was given
+      const hasValue = ratingValue !== null || selectedOptionId !== null || (textValue !== null && textValue.length > 0);
+      if (!hasValue && !q.isRequired) {
+        continue;
+      }
+
+      answersData.push({
         id: `ans_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`,
         questionId: ans.questionId,
         selectedOptionId,
         ratingValue,
         textValue,
-      };
-    });
+      });
+    }
 
-    // 9. Atomic database transaction (BR-06 concurrency protection)
+    // 9. Atomic nested write backed by DB composite unique constraint @@unique([surveyId, respondentId])
     try {
-      const created = await prisma.$transaction(async (tx) => {
-        return tx.response.create({
-          data: {
-            id: responseId,
-            surveyId,
-            respondentId,
-            submittedAt: new Date(),
-            Answer: {
-              create: answersData,
-            },
+      const created = await prisma.response.create({
+        data: {
+          id: responseId,
+          surveyId,
+          respondentId,
+          submittedAt: new Date(),
+          Answer: {
+            create: answersData,
           },
-        });
+        },
       });
 
       return {
@@ -157,8 +181,8 @@ export class ResponseService {
         submittedAt: created.submittedAt,
         answersRecorded: answersData.length,
       };
-    } catch (error: any) {
-      if (error?.code === 'P2002') {
+    } catch (error: unknown) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         throw new AppError(409, 'DUPLICATE_SUBMISSION', 'You have already submitted a response to this survey');
       }
       throw error;
@@ -258,7 +282,7 @@ export class ResponseService {
       throw new AppError(404, 'RESPONSE_NOT_FOUND', 'Response not found');
     }
 
-    // Privacy Guarantee (BR-08, TEST-28): query scoped to current user
+    // Privacy Guarantee (BR-08, TEST-28): Respondent A cannot view Respondent B receipt
     if (response.respondentId !== requestingUserId) {
       throw new AppError(403, 'FORBIDDEN_OWNERSHIP', 'Access denied to this response receipt');
     }
