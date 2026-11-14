@@ -58,6 +58,13 @@ async function main() {
 
   const owner1 = await prisma.user.findUnique({ where: { email: 'owner1@unipulse.edu' } });
   if (owner1) {
+    // Clean existing responses, answers, options, questions, and surveys for a deterministic baseline reset
+    await prisma.answer.deleteMany({});
+    await prisma.response.deleteMany({});
+    await prisma.questionOption.deleteMany({});
+    await prisma.question.deleteMany({});
+    await prisma.survey.deleteMany({});
+
     // 1. Seed srv_cpe334_001 (PUBLISHED)
     const existing1 = await prisma.survey.findUnique({ where: { id: 'srv_cpe334_001' } });
     if (!existing1) {
