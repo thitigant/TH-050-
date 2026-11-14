@@ -20,6 +20,7 @@ describe('F-05 / F-06 Browse and Open Published Surveys for Respondents', () => 
   let publishedSurvey2Id: string;
   let draftSurveyId: string;
   let closedSurveyId: string;
+  let expiredSurveyId: string;
   let submittedResponseId: string;
 
   beforeAll(async () => {
@@ -142,11 +143,37 @@ describe('F-05 / F-06 Browse and Open Published Surveys for Respondents', () => 
         publishedAt: new Date(timestamp - 20000),
         closedAt: new Date(timestamp - 1000),
         updatedAt: new Date(),
+        Question: {
+          create: [
+            {
+              id: `qst_closed_1_${timestamp}`,
+              text: 'Retrospective question from closed survey',
+              type: 'SHORT_TEXT',
+              isRequired: true,
+              displayOrder: 1,
+            },
+          ],
+        },
       },
     });
     closedSurveyId = sClosed.id;
 
-    // 5. Create a Response for student1 on publishedSurvey1Id to test hasSubmitted: true
+    // 5. Create a PUBLISHED survey whose closesAt deadline has already expired
+    const sExpired = await prisma.survey.create({
+      data: {
+        id: `srv_expired_${timestamp}`,
+        ownerId: owner1Id,
+        title: 'Expired Deadline Survey',
+        description: 'Survey past its closesAt cutoff',
+        status: SurveyStatus.PUBLISHED,
+        publishedAt: new Date(timestamp - 25000),
+        closesAt: new Date(timestamp - 1000),
+        updatedAt: new Date(),
+      },
+    });
+    expiredSurveyId = sExpired.id;
+
+    // 6. Create a Response for student1 on publishedSurvey1Id to test hasSubmitted: true
     const resp = await prisma.response.create({
       data: {
         id: `rsp_test_${timestamp}`,
@@ -162,7 +189,7 @@ describe('F-05 / F-06 Browse and Open Published Surveys for Respondents', () => 
     if (submittedResponseId) {
       await prisma.response.deleteMany({ where: { id: submittedResponseId } });
     }
-    const idsToDelete = [publishedSurvey1Id, publishedSurvey2Id, draftSurveyId, closedSurveyId].filter(Boolean);
+    const idsToDelete = [publishedSurvey1Id, publishedSurvey2Id, draftSurveyId, closedSurveyId, expiredSurveyId].filter(Boolean);
     if (idsToDelete.length > 0) {
       await prisma.survey.deleteMany({ where: { id: { in: idsToDelete } } });
     }
@@ -193,12 +220,27 @@ describe('F-05 / F-06 Browse and Open Published Surveys for Respondents', () => 
       expect(s1).toBeDefined();
       expect(s2).toBeDefined();
 
+      // Ordering assertion: publishedAt desc (survey 2 was published after survey 1)
+      const index1 = surveys.findIndex((s: any) => s.id === publishedSurvey1Id);
+      const index2 = surveys.findIndex((s: any) => s.id === publishedSurvey2Id);
+      expect(index2).toBeLessThan(index1);
+
+      // Projection assertion: respondent catalog must NOT leak owner-facing metadata or response counts
+      surveys.forEach((survey: any) => {
+        expect(survey.ownerId).toBeUndefined();
+        expect(survey.responseMode).toBeUndefined();
+        if (survey._count) {
+          expect(survey._count.Response).toBeUndefined();
+          expect(typeof survey._count.Question).toBe('number');
+        }
+      });
+
       // student1 has submitted survey1, but NOT survey2
       expect(s1.hasSubmitted).toBe(true);
       expect(s2.hasSubmitted).toBe(false);
     });
 
-    it('NFR-11 Zero Draft Leakage: should NEVER include DRAFT or CLOSED surveys in respondent catalog', async () => {
+    it('NFR-11 Zero Draft Leakage: should NEVER include DRAFT, CLOSED, or deadline-expired surveys in respondent catalog', async () => {
       const res = await request(app)
         .get('/api/surveys')
         .set('Authorization', `Bearer ${student1Token}`);
@@ -208,9 +250,11 @@ describe('F-05 / F-06 Browse and Open Published Surveys for Respondents', () => 
 
       const foundDraft = surveys.find((s: any) => s.id === draftSurveyId);
       const foundClosed = surveys.find((s: any) => s.id === closedSurveyId);
+      const foundExpired = surveys.find((s: any) => s.id === expiredSurveyId);
 
       expect(foundDraft).toBeUndefined();
       expect(foundClosed).toBeUndefined();
+      expect(foundExpired).toBeUndefined();
     });
 
     it('BR-06 / FR-10: student2 should see hasSubmitted = false for publishedSurvey1 since they have not submitted', async () => {
@@ -324,6 +368,29 @@ describe('F-05 / F-06 Browse and Open Published Surveys for Respondents', () => 
 
       expect(res.status).toBe(404);
       expect(res.body.error.code).toBe('SURVEY_NOT_FOUND');
+    });
+
+    it('F-10 / FR-11: should allow Respondent to inspect a CLOSED survey by ID to review questions', async () => {
+      const res = await request(app)
+        .get(`/api/surveys/${closedSurveyId}`)
+        .set('Authorization', `Bearer ${student1Token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.id).toBe(closedSurveyId);
+      expect(res.body.data.status).toBe('CLOSED');
+      expect(res.body.data.Question).toHaveLength(1);
+      expect(res.body.data.hasSubmitted).toBe(false);
+    });
+
+    it('should allow Survey Owner to inspect another owner\'s PUBLISHED survey by ID', async () => {
+      const res = await request(app)
+        .get(`/api/surveys/${publishedSurvey1Id}`)
+        .set('Authorization', `Bearer ${owner2Token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.id).toBe(publishedSurvey1Id);
+      expect(res.body.data.status).toBe('PUBLISHED');
+      expect(res.body.data.Question).toHaveLength(2);
     });
 
     it('should reject unauthenticated detail request with 401 UNAUTHORIZED', async () => {

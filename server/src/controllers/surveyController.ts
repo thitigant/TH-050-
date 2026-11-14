@@ -5,12 +5,22 @@ import { surveyService } from '../services/surveyService.js';
 import { AppError } from '../utils/errors.js';
 import { Role } from '@prisma/client';
 
-function handleControllerError(error: any, res: Response, next: NextFunction): void {
-  if (error instanceof AppError || (error && error.statusCode)) {
+function handleControllerError(error: unknown, res: Response, next: NextFunction): void {
+  if (error instanceof AppError) {
     res.status(error.statusCode).json({
       error: {
-        code: error.code || 'SURVEY_ERROR',
+        code: error.code,
         message: error.message,
+      },
+    });
+    return;
+  }
+  if (typeof error === 'object' && error !== null && 'statusCode' in error) {
+    const err = error as { statusCode: number; code?: string; message?: string };
+    res.status(err.statusCode).json({
+      error: {
+        code: err.code || 'SURVEY_ERROR',
+        message: err.message || 'An error occurred',
       },
     });
     return;
@@ -54,21 +64,18 @@ export class SurveyController {
 
   async getSurveys(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
-      if (!req.user) {
-        res.status(401).json({
-          error: {
-            code: 'UNAUTHORIZED',
-            message: 'Authentication required',
-          },
-        });
-        return;
-      }
-
       let surveys;
-      if (req.user.role === Role.RESPONDENT) {
-        surveys = await surveyService.getPublishedSurveysForRespondent(req.user.id);
-      } else {
-        surveys = await surveyService.getOwnerSurveys(req.user.id);
+      switch (req.user!.role) {
+        case Role.RESPONDENT:
+          surveys = await surveyService.getPublishedSurveysForRespondent(req.user!.id);
+          break;
+        case Role.SURVEY_OWNER:
+          surveys = await surveyService.getOwnerSurveys(req.user!.id);
+          break;
+        default: {
+          const _exhaustiveCheck: never = req.user!.role;
+          throw new AppError(403, 'FORBIDDEN_ROLE', `Role '${_exhaustiveCheck}' is not authorized to list surveys`);
+        }
       }
 
       res.status(200).json({
@@ -77,10 +84,6 @@ export class SurveyController {
     } catch (error) {
       handleControllerError(error, res, next);
     }
-  }
-
-  async getMySurveys(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
-    return this.getSurveys(req, res, next);
   }
 
   async getSurvey(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
