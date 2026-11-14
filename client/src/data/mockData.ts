@@ -1,0 +1,75 @@
+import type { Survey } from '../types/survey.js';
+
+export const INITIAL_SURVEYS: Survey[] = [
+  {
+    id: 'srv_cpe334_001',
+    title: 'CPE 334 Software Engineering Course Evaluation (Sprint 1)',
+    description: 'Please provide constructive feedback on course lectures, TDD workshops, and sprint cadence.',
+    category: 'Course Evaluation',
+    status: 'PUBLISHED',
+    ownerId: 'usr_owner_1',
+    ownerEmail: 'owner1@unipulse.edu',
+    createdAt: '2026-11-01T09:00:00Z',
+    publishedAt: '2026-11-02T10:00:00Z',
+    questions: [
+      {
+        id: 'qst_1',
+        prompt: 'How satisfied are you with the TDD and CI/CD engineering workshops?',
+        questionType: 'RATING',
+        isRequired: true,
+        order: 1,
+      },
+      {
+        id: 'qst_2',
+        prompt: 'Which development methodology fits your team best?',
+        questionType: 'SINGLE_CHOICE',
+        isRequired: true,
+        order: 2,
+        options: [
+          { id: 'opt_1', label: 'TDD (Test-Driven Development)', order: 1 },
+          { id: 'opt_2', label: 'Feature-first with Integration Tests', order: 2 },
+          { id: 'opt_3', label: 'Spike & Prototype Exploration', order: 3 },
+        ],
+      },
+      {
+        id: 'qst_3',
+        prompt: 'What suggestions do you have for upcoming Sprint 2 and 3 topics?',
+        questionType: 'SHORT_TEXT',
+        isRequired: false,
+        order: 3,
+      },
+    ],
+  },
+  {
+    id: 'srv_facilities_002',
+    title: 'CPE Engineering Computer Lab Hardware & Environment Feedback',
+    description: 'Help department technicians evaluate monitor resolution, network speed, and chair ergonomics.',
+    category: 'Department Facilities',
+    status: 'DRAFT',
+    ownerId: 'usr_owner_1',
+    ownerEmail: 'owner1@unipulse.edu',
+    createdAt: '2026-11-10T14:30:00Z',
+    questions: [
+      {
+        id: 'qst_fac_1',
+        prompt: 'Rate the overall responsiveness of lab workstations (1 to 5):',
+        questionType: 'RATING',
+        isRequired: true,
+        order: 1,
+      },
+    ],
+  },
+  {
+    id: 'srv_senior_003',
+    title: 'Senior Capstone Project Track Preferences',
+    description: 'Completed annual survey on senior project domains.',
+    category: 'Academic Advising',
+    status: 'CLOSED',
+    ownerId: 'usr_owner_1',
+    ownerEmail: 'owner1@unipulse.edu',
+    createdAt: '2026-10-15T08:00:00Z',
+    publishedAt: '2026-10-16T08:00:00Z',
+    closedAt: '2026-11-05T18:00:00Z',
+    questions: [],
+  },
+];
