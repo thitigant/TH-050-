@@ -54,7 +54,9 @@ const DEFAULT_ANALYTICS_DATA: SurveyAnalyticsData = {
   ],
 };
 
-function App() {
+const BASELINE_SURVEY_IDS = new Set(INITIAL_SURVEYS.map((s) => s.id));
+
+function UniPulseMain() {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [loginEmail, setLoginEmail] = useState<string>('owner1@unipulse.edu');
   const [loginPassword, setLoginPassword] = useState<string>('Password123!');
@@ -63,14 +65,14 @@ function App() {
   const [activeTab, setActiveTab] = useState<string>('owner_surveys');
   const [surveys, setSurveys] = useState<Survey[]>(() => {
     try {
-      for (const ver of ['v1', 'v2']) {
+      for (const ver of ['v1', 'v2', 'v3']) {
         localStorage.removeItem(`unipulse_surveys_${ver}`);
         localStorage.removeItem(`unipulse_submitted_${ver}`);
         localStorage.removeItem(`unipulse_receipts_${ver}`);
         localStorage.removeItem(`unipulse_responses_${ver}`);
         localStorage.removeItem(`unipulse_backend_summaries_${ver}`);
       }
-      const saved = localStorage.getItem('unipulse_surveys_v3');
+      const saved = localStorage.getItem('unipulse_surveys_v4');
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
@@ -83,7 +85,7 @@ function App() {
   const [selectedSurveyForTaking, setSelectedSurveyForTaking] = useState<Survey | null>(null);
   const [submittedSurveyIds, setSubmittedSurveyIds] = useState<Set<string>>(() => {
     try {
-      const saved = localStorage.getItem('unipulse_submitted_v3');
+      const saved = localStorage.getItem('unipulse_submitted_v4');
       if (saved) return new Set(JSON.parse(saved));
     } catch {
       // Ignore storage error
@@ -92,7 +94,7 @@ function App() {
   });
   const [receipts, setReceipts] = useState<SubmissionReceipt[]>(() => {
     try {
-      const saved = localStorage.getItem('unipulse_receipts_v3');
+      const saved = localStorage.getItem('unipulse_receipts_v4');
       if (saved) return JSON.parse(saved);
     } catch {
       // Ignore storage error
@@ -101,7 +103,7 @@ function App() {
   });
   const [responsesBySurvey, setResponsesBySurvey] = useState<Record<string, AnswerInput[][]>>(() => {
     try {
-      const saved = localStorage.getItem('unipulse_responses_v3');
+      const saved = localStorage.getItem('unipulse_responses_v4');
       if (saved) return JSON.parse(saved);
     } catch {
       // Ignore storage error
@@ -110,7 +112,7 @@ function App() {
   });
   const [backendSummaries, setBackendSummaries] = useState<Record<string, SurveyAnalyticsData>>(() => {
     try {
-      const saved = localStorage.getItem('unipulse_backend_summaries_v3');
+      const saved = localStorage.getItem('unipulse_backend_summaries_v4');
       if (saved) return JSON.parse(saved);
     } catch {
       // Ignore storage error
@@ -121,7 +123,7 @@ function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('unipulse_surveys_v3', JSON.stringify(surveys));
+      localStorage.setItem('unipulse_surveys_v4', JSON.stringify(surveys));
     } catch {
       // Ignore storage error
     }
@@ -129,7 +131,7 @@ function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('unipulse_submitted_v3', JSON.stringify(Array.from(submittedSurveyIds)));
+      localStorage.setItem('unipulse_submitted_v4', JSON.stringify(Array.from(submittedSurveyIds)));
     } catch {
       // Ignore storage error
     }
@@ -137,7 +139,7 @@ function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('unipulse_receipts_v3', JSON.stringify(receipts));
+      localStorage.setItem('unipulse_receipts_v4', JSON.stringify(receipts));
     } catch {
       // Ignore storage error
     }
@@ -145,7 +147,7 @@ function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('unipulse_responses_v3', JSON.stringify(responsesBySurvey));
+      localStorage.setItem('unipulse_responses_v4', JSON.stringify(responsesBySurvey));
     } catch {
       // Ignore storage error
     }
@@ -153,7 +155,7 @@ function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('unipulse_backend_summaries_v3', JSON.stringify(backendSummaries));
+      localStorage.setItem('unipulse_backend_summaries_v4', JSON.stringify(backendSummaries));
     } catch {
       // Ignore storage error
     }
@@ -164,12 +166,29 @@ function App() {
       const res = await fetch(`/api/surveys/${survey.id}/responses/me`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      const submissionKey = `${email}:${survey.id}`;
+      if (res.status === 404 && BASELINE_SURVEY_IDS.has(survey.id)) {
+        setSubmittedSurveyIds((prev) => {
+          if (!prev.has(survey.id) && !prev.has(submissionKey)) return prev;
+          const next = new Set(prev);
+          next.delete(survey.id);
+          next.delete(submissionKey);
+          return next;
+        });
+        setReceipts((prev) => prev.filter((r) => r.surveyId !== survey.id));
+        setResponsesBySurvey((prev) => {
+          if (!prev[survey.id]) return prev;
+          const next = { ...prev };
+          delete next[survey.id];
+          return next;
+        });
+        return;
+      }
       if (!res.ok) return;
       const body = await res.json();
       const resp = body?.data;
       if (!resp || !resp.id) return;
 
-      const submissionKey = `${email}:${survey.id}`;
       setSubmittedSurveyIds((prev) => {
         const next = new Set(prev);
         next.add(submissionKey);
@@ -228,6 +247,14 @@ function App() {
           ...prev,
           [surveyId]: body.data,
         }));
+        if (body.data.totalResponses === 0 && BASELINE_SURVEY_IDS.has(surveyId)) {
+          setResponsesBySurvey((prev) => {
+            if (!prev[surveyId]) return prev;
+            const next = { ...prev };
+            delete next[surveyId];
+            return next;
+          });
+        }
       }
     } catch {
       // Ignore network error
@@ -1075,4 +1102,6 @@ function App() {
   );
 }
 
-export default App;
+export default function App() {
+  return <UniPulseMain key="unipulse_clean_v4" />;
+}
