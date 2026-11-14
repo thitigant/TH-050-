@@ -299,7 +299,7 @@ describe('F-06 & F-07 Response Submission and Duplicate Prevention', () => {
       expect(res.body.error.code).toBe('SURVEY_NOT_ACCEPTING_RESPONSES');
     });
 
-    it('TEST-20 (AC-16, BR-05): should reject submission to DRAFT survey with 400 SURVEY_NOT_ACCEPTING_RESPONSES', async () => {
+    it('NFR-11 Zero Draft Leakage (TEST-20): should return 404 SURVEY_NOT_FOUND when non-owner attempts submission to DRAFT survey', async () => {
       const payload = {
         answers: [
           { questionId: `qst_draft_${Date.now()}`, textValue: 'Draft answer' },
@@ -311,9 +311,9 @@ describe('F-06 & F-07 Response Submission and Duplicate Prevention', () => {
         .set('Authorization', `Bearer ${student2Token}`)
         .send(payload);
 
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(404);
       expect(res.body.error).toBeDefined();
-      expect(res.body.error.code).toBe('SURVEY_NOT_ACCEPTING_RESPONSES');
+      expect(res.body.error.code).toBe('SURVEY_NOT_FOUND');
     });
 
     it('BR-05: should reject submission to PUBLISHED survey whose closesAt deadline has passed with 400', async () => {
@@ -574,13 +574,13 @@ describe('F-06 & F-07 Response Submission and Duplicate Prevention', () => {
       expect(res.body.data.respondentId).toBe(student1Id);
     });
 
-    it('TEST-28 (BR-08 Privacy Guarantee): Respondent B requesting Respondent A receipt is rejected with 403', async () => {
+    it('TEST-28 (BR-08 Privacy Guarantee): Respondent B requesting Respondent A receipt is rejected with 404 without leaking ID existence', async () => {
       const res = await request(app)
         .get(`/api/responses/${createdResponseId}`)
         .set('Authorization', `Bearer ${student2Token}`);
 
-      expect(res.status).toBe(403);
-      expect(res.body.error.code).toBe('FORBIDDEN_OWNERSHIP');
+      expect(res.status).toBe(404);
+      expect(res.body.error.code).toBe('RESPONSE_NOT_FOUND');
     });
 
     it('should work identically on /api/v1/responses/:id path', async () => {

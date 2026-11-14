@@ -27,8 +27,14 @@ export class ResponseService {
       throw new AppError(403, 'OWNER_CANNOT_RESPOND', 'Survey owner cannot submit responses to their own survey');
     }
 
-    // 3. Survey must have status PUBLISHED to accept responses (BR-05, TEST-19, TEST-20)
-    // Note: Returns generic message without disclosing internal status string
+    // 3. Zero Draft Leakage (NFR-11):
+    // DRAFT surveys are strictly private to the owner. Non-owners receive 404 SURVEY_NOT_FOUND
+    // to prevent disclosing the existence or lifecycle state of unreleased drafts.
+    if (survey.status === SurveyStatus.DRAFT) {
+      throw new AppError(404, 'SURVEY_NOT_FOUND', 'Survey not found');
+    }
+
+    // 4. Survey must have status PUBLISHED to accept responses (BR-05, TEST-19)
     if (survey.status !== SurveyStatus.PUBLISHED) {
       throw new AppError(
         400,
@@ -37,12 +43,12 @@ export class ResponseService {
       );
     }
 
-    // 4. Check deadline if configured
+    // 5. Check deadline if configured
     if (survey.closesAt && survey.closesAt <= new Date()) {
       throw new AppError(400, 'SURVEY_NOT_ACCEPTING_RESPONSES', 'Survey response deadline has passed');
     }
 
-    // 5. Pre-flight duplicate check (BR-06, AC-17, TEST-14)
+    // 6. Pre-flight duplicate check (BR-06, AC-17, TEST-14)
     const existingResponse = await prisma.response.findUnique({
       where: {
         surveyId_respondentId: {
@@ -57,7 +63,7 @@ export class ResponseService {
       throw new AppError(409, 'DUPLICATE_SUBMISSION', 'You have already submitted a response to this survey');
     }
 
-    // 6. Validate answers against survey questions
+    // 7. Validate answers against survey questions
     const questionMap = new Map(survey.Question.map((q) => [q.id, q]));
     const seenQuestionIds = new Set<string>();
 
@@ -241,8 +247,14 @@ export class ResponseService {
   }
 
   async getResponseById(responseId: string, requestingUserId: string) {
-    const response = await prisma.response.findUnique({
-      where: { id: responseId },
+    // Privacy Guarantee (BR-08, TEST-28):
+    // Scoped directly by id AND respondentId to prevent loading another user's answers,
+    // and returns 404 to avoid disclosing whether a foreign response ID exists.
+    const response = await prisma.response.findFirst({
+      where: {
+        id: responseId,
+        respondentId: requestingUserId,
+      },
       include: {
         Answer: {
           include: {
@@ -279,12 +291,7 @@ export class ResponseService {
     });
 
     if (!response) {
-      throw new AppError(404, 'RESPONSE_NOT_FOUND', 'Response not found');
-    }
-
-    // Privacy Guarantee (BR-08, TEST-28): Respondent A cannot view Respondent B receipt
-    if (response.respondentId !== requestingUserId) {
-      throw new AppError(403, 'FORBIDDEN_OWNERSHIP', 'Access denied to this response receipt');
+      throw new AppError(404, 'RESPONSE_NOT_FOUND', 'Response not found or access denied');
     }
 
     return response;
