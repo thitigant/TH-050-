@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { surveyController } from '../controllers/surveyController.js';
+import { responseController } from '../controllers/responseController.js';
 import { requireAuth, requireRole } from '../middleware/authMiddleware.js';
 import { Role } from '@prisma/client';
 
@@ -27,6 +28,15 @@ router.post('/:id/publish', requireAuth, requireRole(Role.SURVEY_OWNER), (req, r
 
 router.post('/:id/close', requireAuth, requireRole(Role.SURVEY_OWNER), (req, res, next) =>
   surveyController.closeSurvey(req, res, next)
+);
+
+// Response Submission & Receipt routes (F-06 & F-07)
+router.post('/:id/responses', requireAuth, (req, res, next) =>
+  responseController.submitResponse(req, res, next)
+);
+
+router.get('/:id/responses/me', requireAuth, (req, res, next) =>
+  responseController.getMyResponse(req, res, next)
 );
 
 export default router;
