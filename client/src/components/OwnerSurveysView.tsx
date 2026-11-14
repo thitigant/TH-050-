@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { Survey } from '../types/survey.js';
 
 interface OwnerSurveysViewProps {
@@ -15,6 +16,19 @@ export function OwnerSurveysView({
   onViewAnalytics,
   onOpenCreate,
 }: OwnerSurveysViewProps) {
+  const [lifecycleError, setLifecycleError] = useState<string | null>(null);
+
+  const handlePublishClick = (survey: Survey) => {
+    if (survey.questions.length === 0) {
+      setLifecycleError(
+        `HTTP 422 Unprocessable Entity (EMPTY_SURVEY_CANNOT_PUBLISH): Cannot publish survey "${survey.title}" because it has 0 questions. Business Rule BR-02 requires at least 1 question before publishing.`
+      );
+      return;
+    }
+    setLifecycleError(null);
+    onPublish(survey.id);
+  };
+
   const getBadgeStyle = (status: Survey['status']) => {
     switch (status) {
       case 'DRAFT':
@@ -55,6 +69,40 @@ export function OwnerSurveysView({
           + Create New Survey (Draft)
         </button>
       </div>
+
+      {lifecycleError && (
+        <div
+          style={{
+            backgroundColor: '#fef2f2',
+            border: '1px solid #fecaca',
+            borderRadius: '8px',
+            padding: '0.85rem 1.15rem',
+            color: '#b91c1c',
+            marginBottom: '1.25rem',
+            fontWeight: 600,
+            fontSize: '0.9rem',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+          }}
+        >
+          <span>⛔ {lifecycleError}</span>
+          <button
+            type="button"
+            onClick={() => setLifecycleError(null)}
+            style={{
+              backgroundColor: 'transparent',
+              border: 'none',
+              color: '#991b1b',
+              fontWeight: 800,
+              cursor: 'pointer',
+              fontSize: '1rem',
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       <div style={{ backgroundColor: '#ffffff', borderRadius: '10px', border: '1px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.9rem' }}>
@@ -102,7 +150,7 @@ export function OwnerSurveysView({
                       {s.status === 'DRAFT' && (
                         <button
                           type="button"
-                          onClick={() => onPublish(s.id)}
+                          onClick={() => handlePublishClick(s)}
                           style={{
                             padding: '0.35rem 0.75rem',
                             backgroundColor: '#16a34a',

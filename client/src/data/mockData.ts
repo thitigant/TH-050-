@@ -70,6 +70,26 @@ export const INITIAL_SURVEYS: Survey[] = [
     createdAt: '2026-10-15T08:00:00Z',
     publishedAt: '2026-10-16T08:00:00Z',
     closedAt: '2026-11-05T18:00:00Z',
-    questions: [],
+    questions: [
+      {
+        id: 'qst_sen_1',
+        prompt: 'Which capstone track is your primary preference?',
+        questionType: 'SINGLE_CHOICE',
+        isRequired: true,
+        order: 1,
+        options: [
+          { id: 'opt_sen_1', label: 'AI & Data Engineering', order: 1 },
+          { id: 'opt_sen_2', label: 'Full-Stack & Cloud Systems', order: 2 },
+          { id: 'opt_sen_3', label: 'Embedded & IoT Security', order: 3 },
+        ],
+      },
+      {
+        id: 'qst_sen_2',
+        prompt: 'Rate your readiness for the upcoming capstone proposal defense (1-5):',
+        questionType: 'RATING',
+        isRequired: true,
+        order: 2,
+      },
+    ],
   },
 ];

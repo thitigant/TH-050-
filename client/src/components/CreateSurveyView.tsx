@@ -77,8 +77,13 @@ export function CreateSurveyView({
       return;
     }
 
+    if (newPrompt.trim().length > 0) {
+      setErrorMsg('You typed a question prompt below — please click "Add Question" to add it to the list before saving.');
+      return;
+    }
+
     if (status === 'PUBLISHED' && questions.length === 0) {
-      setErrorMsg('Business Rule BR-02: A survey must contain at least 1 question before it can be published.');
+      setErrorMsg('HTTP 422 Unprocessable Entity (BR-02): Cannot publish a survey with 0 questions. Please add at least 1 question.');
       return;
     }
 

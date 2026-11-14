@@ -145,7 +145,9 @@ function App() {
   const handlePublishSurvey = (surveyId: string) => {
     setSurveys((prev) =>
       prev.map((s) =>
-        s.id === surveyId ? { ...s, status: 'PUBLISHED', publishedAt: new Date().toISOString() } : s
+        s.id === surveyId && s.questions.length > 0
+          ? { ...s, status: 'PUBLISHED', publishedAt: new Date().toISOString() }
+          : s
       )
     );
   };
