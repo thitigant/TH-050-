@@ -72,7 +72,54 @@ export class SurveyService {
     });
   }
 
-  async getSurveyById(surveyId: string, ownerId?: string) {
+  async getPublishedSurveysForRespondent(respondentId: string) {
+    const now = new Date();
+    const surveys = await prisma.survey.findMany({
+      where: {
+        status: SurveyStatus.PUBLISHED,
+        // Exclude surveys whose deadline has elapsed if closesAt is configured
+        OR: [
+          { closesAt: null },
+          { closesAt: { gt: now } },
+        ],
+      },
+      orderBy: {
+        publishedAt: 'desc',
+      },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        status: true,
+        publishedAt: true,
+        closesAt: true,
+        _count: {
+          select: {
+            Question: true,
+          },
+        },
+        Response: {
+          where: {
+            respondentId,
+          },
+          select: {
+            id: true,
+          },
+        },
+      },
+    });
+
+    return surveys.map((survey) => {
+      const { Response, ...rest } = survey;
+      return {
+        ...rest,
+        hasSubmitted: Response.length > 0,
+      };
+    });
+  }
+
+  async getSurveyById(surveyId: string, userId?: string) {
+    // Single query fetching survey details, ordered questions/options, and user submission status
     const survey = await prisma.survey.findUnique({
       where: { id: surveyId },
       include: {
@@ -84,25 +131,39 @@ export class SurveyService {
             },
           },
         },
+        ...(userId
+          ? {
+              Response: {
+                where: { respondentId: userId },
+                select: { id: true },
+              },
+            }
+          : {}),
       },
     });
 
     if (!survey) {
-      const error: any = new Error('Survey not found');
-      error.statusCode = 404;
-      error.code = 'SURVEY_NOT_FOUND';
-      throw error;
+      throw new AppError(404, 'SURVEY_NOT_FOUND', 'Survey not found');
     }
 
-    // If survey is DRAFT and requesting user is not owner, block
-    if (survey.status === SurveyStatus.DRAFT && ownerId && survey.ownerId !== ownerId) {
-      const error: any = new Error('Survey not found or access denied');
-      error.statusCode = 404;
-      error.code = 'SURVEY_NOT_FOUND';
-      throw error;
+    // Zero Draft Leakage (NFR-11):
+    // DRAFT surveys are private to the survey owner. Non-owners and respondents receive 404
+    // to prevent disclosing the existence or contents of unreleased drafts.
+    if (survey.status === SurveyStatus.DRAFT && (!userId || survey.ownerId !== userId)) {
+      throw new AppError(404, 'SURVEY_NOT_FOUND', 'Survey not found');
     }
 
-    return survey;
+    // Note on CLOSED surveys:
+    // CLOSED surveys remain readable by ID for authenticated users to view questions or submission
+    // receipts (F-10 / FR-15). Response submissions to CLOSED surveys are rejected by BR-05 (HTTP 400).
+
+    const { Response, ...rest } = survey as any;
+    const hasSubmitted = Array.isArray(Response) ? Response.length > 0 : false;
+
+    return {
+      ...rest,
+      hasSubmitted,
+    };
   }
 
   async publishSurvey(surveyId: string, ownerId: string) {

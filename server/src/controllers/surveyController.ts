@@ -3,13 +3,24 @@ import { AuthenticatedRequest } from '../middleware/authMiddleware.js';
 import { createSurveySchema } from '../validators/surveyValidator.js';
 import { surveyService } from '../services/surveyService.js';
 import { AppError } from '../utils/errors.js';
+import { Role } from '@prisma/client';
 
-function handleControllerError(error: any, res: Response, next: NextFunction): void {
-  if (error instanceof AppError || (error && error.statusCode)) {
+function handleControllerError(error: unknown, res: Response, next: NextFunction): void {
+  if (error instanceof AppError) {
     res.status(error.statusCode).json({
       error: {
-        code: error.code || 'SURVEY_ERROR',
+        code: error.code,
         message: error.message,
+      },
+    });
+    return;
+  }
+  if (typeof error === 'object' && error !== null && 'statusCode' in error) {
+    const err = error as { statusCode: number; code?: string; message?: string };
+    res.status(err.statusCode).json({
+      error: {
+        code: err.code || 'SURVEY_ERROR',
+        message: err.message || 'An error occurred',
       },
     });
     return;
@@ -51,24 +62,27 @@ export class SurveyController {
     }
   }
 
-  async getMySurveys(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+  async getSurveys(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
-      if (!req.user) {
-        res.status(401).json({
-          error: {
-            code: 'UNAUTHORIZED',
-            message: 'Authentication required',
-          },
-        });
-        return;
+      let surveys;
+      switch (req.user!.role) {
+        case Role.RESPONDENT:
+          surveys = await surveyService.getPublishedSurveysForRespondent(req.user!.id);
+          break;
+        case Role.SURVEY_OWNER:
+          surveys = await surveyService.getOwnerSurveys(req.user!.id);
+          break;
+        default: {
+          const _exhaustiveCheck: never = req.user!.role;
+          throw new AppError(403, 'FORBIDDEN_ROLE', `Role '${_exhaustiveCheck}' is not authorized to list surveys`);
+        }
       }
 
-      const surveys = await surveyService.getOwnerSurveys(req.user.id);
       res.status(200).json({
         data: surveys,
       });
     } catch (error) {
-      next(error);
+      handleControllerError(error, res, next);
     }
   }
 
@@ -79,17 +93,8 @@ export class SurveyController {
       res.status(200).json({
         data: survey,
       });
-    } catch (error: any) {
-      if (error.statusCode) {
-        res.status(error.statusCode).json({
-          error: {
-            code: error.code || 'SURVEY_ERROR',
-            message: error.message,
-          },
-        });
-        return;
-      }
-      next(error);
+    } catch (error) {
+      handleControllerError(error, res, next);
     }
   }
 
