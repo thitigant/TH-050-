@@ -31,6 +31,10 @@ router.post('/:id/close', requireAuth, requireRole(Role.SURVEY_OWNER), (req, res
   surveyController.closeSurvey(req, res, next)
 );
 
+router.delete('/:id', requireAuth, requireRole(Role.SURVEY_OWNER), (req, res, next) =>
+  surveyController.deleteSurvey(req, res, next)
+);
+
 // Response Submission & Receipt routes (F-06 & F-07)
 router.post('/:id/responses', requireAuth, (req, res, next) =>
   responseController.submitResponse(req, res, next)

@@ -300,6 +300,26 @@ export class SurveyService {
       where: { id: surveyId },
     });
   }
+
+  async deleteSurvey(surveyId: string, ownerId: string) {
+    const survey = await prisma.survey.findUnique({
+      where: { id: surveyId },
+    });
+
+    if (!survey) {
+      throw new AppError(404, 'SURVEY_NOT_FOUND', 'Survey not found');
+    }
+
+    if (survey.ownerId !== ownerId) {
+      throw new AppError(403, 'FORBIDDEN_OWNERSHIP', 'Access denied. You do not own this survey.');
+    }
+
+    await prisma.survey.delete({
+      where: { id: surveyId },
+    });
+
+    return { id: surveyId, deleted: true };
+  }
 }
 
 export const surveyService = new SurveyService();

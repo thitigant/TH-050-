@@ -63,12 +63,14 @@ function App() {
   const [activeTab, setActiveTab] = useState<string>('owner_surveys');
   const [surveys, setSurveys] = useState<Survey[]>(() => {
     try {
-      localStorage.removeItem('unipulse_surveys_v1');
-      localStorage.removeItem('unipulse_submitted_v1');
-      localStorage.removeItem('unipulse_receipts_v1');
-      localStorage.removeItem('unipulse_responses_v1');
-      localStorage.removeItem('unipulse_backend_summaries_v1');
-      const saved = localStorage.getItem('unipulse_surveys_v2');
+      for (const ver of ['v1', 'v2']) {
+        localStorage.removeItem(`unipulse_surveys_${ver}`);
+        localStorage.removeItem(`unipulse_submitted_${ver}`);
+        localStorage.removeItem(`unipulse_receipts_${ver}`);
+        localStorage.removeItem(`unipulse_responses_${ver}`);
+        localStorage.removeItem(`unipulse_backend_summaries_${ver}`);
+      }
+      const saved = localStorage.getItem('unipulse_surveys_v3');
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
@@ -81,7 +83,7 @@ function App() {
   const [selectedSurveyForTaking, setSelectedSurveyForTaking] = useState<Survey | null>(null);
   const [submittedSurveyIds, setSubmittedSurveyIds] = useState<Set<string>>(() => {
     try {
-      const saved = localStorage.getItem('unipulse_submitted_v2');
+      const saved = localStorage.getItem('unipulse_submitted_v3');
       if (saved) return new Set(JSON.parse(saved));
     } catch {
       // Ignore storage error
@@ -90,7 +92,7 @@ function App() {
   });
   const [receipts, setReceipts] = useState<SubmissionReceipt[]>(() => {
     try {
-      const saved = localStorage.getItem('unipulse_receipts_v2');
+      const saved = localStorage.getItem('unipulse_receipts_v3');
       if (saved) return JSON.parse(saved);
     } catch {
       // Ignore storage error
@@ -99,7 +101,7 @@ function App() {
   });
   const [responsesBySurvey, setResponsesBySurvey] = useState<Record<string, AnswerInput[][]>>(() => {
     try {
-      const saved = localStorage.getItem('unipulse_responses_v2');
+      const saved = localStorage.getItem('unipulse_responses_v3');
       if (saved) return JSON.parse(saved);
     } catch {
       // Ignore storage error
@@ -108,7 +110,7 @@ function App() {
   });
   const [backendSummaries, setBackendSummaries] = useState<Record<string, SurveyAnalyticsData>>(() => {
     try {
-      const saved = localStorage.getItem('unipulse_backend_summaries_v2');
+      const saved = localStorage.getItem('unipulse_backend_summaries_v3');
       if (saved) return JSON.parse(saved);
     } catch {
       // Ignore storage error
@@ -119,7 +121,7 @@ function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('unipulse_surveys_v2', JSON.stringify(surveys));
+      localStorage.setItem('unipulse_surveys_v3', JSON.stringify(surveys));
     } catch {
       // Ignore storage error
     }
@@ -127,7 +129,7 @@ function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('unipulse_submitted_v2', JSON.stringify(Array.from(submittedSurveyIds)));
+      localStorage.setItem('unipulse_submitted_v3', JSON.stringify(Array.from(submittedSurveyIds)));
     } catch {
       // Ignore storage error
     }
@@ -135,7 +137,7 @@ function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('unipulse_receipts_v2', JSON.stringify(receipts));
+      localStorage.setItem('unipulse_receipts_v3', JSON.stringify(receipts));
     } catch {
       // Ignore storage error
     }
@@ -143,7 +145,7 @@ function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('unipulse_responses_v2', JSON.stringify(responsesBySurvey));
+      localStorage.setItem('unipulse_responses_v3', JSON.stringify(responsesBySurvey));
     } catch {
       // Ignore storage error
     }
@@ -151,7 +153,7 @@ function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('unipulse_backend_summaries_v2', JSON.stringify(backendSummaries));
+      localStorage.setItem('unipulse_backend_summaries_v3', JSON.stringify(backendSummaries));
     } catch {
       // Ignore storage error
     }
@@ -334,6 +336,40 @@ function App() {
       try {
         await fetch(`/api/surveys/${surveyId}/close`, {
           method: 'POST',
+          headers: { Authorization: `Bearer ${currentUser.token}` },
+        });
+      } catch {
+        // Ignore network error; UI state updated
+      }
+    }
+  };
+
+  const handleDeleteSurvey = async (surveyId: string) => {
+    setSurveys((prev) => prev.filter((s) => s.id !== surveyId));
+    setResponsesBySurvey((prev) => {
+      const next = { ...prev };
+      delete next[surveyId];
+      return next;
+    });
+    setBackendSummaries((prev) => {
+      const next = { ...prev };
+      delete next[surveyId];
+      return next;
+    });
+    setReceipts((prev) => prev.filter((r) => r.surveyId !== surveyId));
+    setSubmittedSurveyIds((prev) => {
+      const next = new Set(prev);
+      for (const item of prev) {
+        if (item === surveyId || item.endsWith(`:${surveyId}`)) {
+          next.delete(item);
+        }
+      }
+      return next;
+    });
+    if (currentUser?.token) {
+      try {
+        await fetch(`/api/surveys/${surveyId}`, {
+          method: 'DELETE',
           headers: { Authorization: `Bearer ${currentUser.token}` },
         });
       } catch {
@@ -952,6 +988,7 @@ function App() {
                 )}
                 onPublish={handlePublishSurvey}
                 onCloseSurvey={handleCloseSurvey}
+                onDeleteSurvey={handleDeleteSurvey}
                 onViewAnalytics={handleViewAnalyticsForSurvey}
                 onOpenCreate={() => setActiveTab('create_survey')}
               />

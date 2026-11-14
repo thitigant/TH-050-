@@ -6,6 +6,7 @@ interface OwnerSurveysViewProps {
   responseCounts?: Record<string, number>;
   onPublish: (surveyId: string) => void;
   onCloseSurvey: (surveyId: string) => void;
+  onDeleteSurvey: (surveyId: string) => void;
   onViewAnalytics: (surveyId: string) => void;
   onOpenCreate: () => void;
 }
@@ -15,6 +16,7 @@ export function OwnerSurveysView({
   responseCounts = {},
   onPublish,
   onCloseSurvey,
+  onDeleteSurvey,
   onViewAnalytics,
   onOpenCreate,
 }: OwnerSurveysViewProps) {
@@ -240,6 +242,24 @@ export function OwnerSurveysView({
                           View Results 📊
                         </button>
                       )}
+
+                      <button
+                        type="button"
+                        onClick={() => onDeleteSurvey(s.id)}
+                        title={`Delete survey "${s.title}"`}
+                        style={{
+                          padding: '0.35rem 0.65rem',
+                          backgroundColor: '#fff1f2',
+                          color: '#be123c',
+                          border: '1px solid #fecdd3',
+                          borderRadius: '5px',
+                          fontWeight: 700,
+                          fontSize: '0.8rem',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Delete 🗑️
+                      </button>
                     </div>
                   </td>
                 </tr>

@@ -94,6 +94,16 @@ export class SurveyController {
       handleControllerError(error, res, next);
     }
   }
+
+  async deleteSurvey(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const surveyId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const result = await surveyService.deleteSurvey(surveyId, req.user!.id);
+      res.status(200).json({ data: result });
+    } catch (error) {
+      handleControllerError(error, res, next);
+    }
+  }
 }
 
 export const surveyController = new SurveyController();
