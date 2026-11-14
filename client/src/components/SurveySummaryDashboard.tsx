@@ -45,9 +45,10 @@ interface Props {
 }
 
 export const SurveySummaryDashboard: React.FC<Props> = ({ surveyId, initialData, token }) => {
-  const [data, setData] = useState<SurveyAnalyticsData | null>(initialData || null);
+  const [fetchedData, setFetchedData] = useState<SurveyAnalyticsData | null>(null);
   const [loading, setLoading] = useState<boolean>(!initialData && !!surveyId);
   const [error, setError] = useState<string | null>(null);
+  const data = initialData ?? fetchedData;
 
   useEffect(() => {
     if (initialData) {
@@ -86,7 +87,7 @@ export const SurveySummaryDashboard: React.FC<Props> = ({ surveyId, initialData,
 
         const json = await res.json();
         if (isMounted) {
-          setData(json.data);
+          setFetchedData(json.data);
         }
       } catch (err: unknown) {
         if (isMounted) {

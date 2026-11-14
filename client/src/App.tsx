@@ -61,29 +61,79 @@ function App() {
   const [loginError, setLoginError] = useState<string>('');
   const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<string>('owner_surveys');
-  const [surveys, setSurveys] = useState<Survey[]>(INITIAL_SURVEYS);
+  const [surveys, setSurveys] = useState<Survey[]>(() => {
+    try {
+      const saved = localStorage.getItem('unipulse_surveys_v1');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {
+      // Ignore storage error
+    }
+    return INITIAL_SURVEYS;
+  });
   const [selectedSurveyForTaking, setSelectedSurveyForTaking] = useState<Survey | null>(null);
-  const [submittedSurveyIds, setSubmittedSurveyIds] = useState<Set<string>>(new Set());
-  const [receipts, setReceipts] = useState<SubmissionReceipt[]>([]);
+  const [submittedSurveyIds, setSubmittedSurveyIds] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem('unipulse_submitted_v1');
+      if (saved) return new Set(JSON.parse(saved));
+    } catch {
+      // Ignore storage error
+    }
+    return new Set();
+  });
+  const [receipts, setReceipts] = useState<SubmissionReceipt[]>(() => {
+    try {
+      const saved = localStorage.getItem('unipulse_receipts_v1');
+      if (saved) return JSON.parse(saved);
+    } catch {
+      // Ignore storage error
+    }
+    return [];
+  });
+  const [responsesBySurvey, setResponsesBySurvey] = useState<Record<string, AnswerInput[][]>>(() => {
+    try {
+      const saved = localStorage.getItem('unipulse_responses_v1');
+      if (saved) return JSON.parse(saved);
+    } catch {
+      // Ignore storage error
+    }
+    return {};
+  });
   const [activeAnalyticsSurveyId, setActiveAnalyticsSurveyId] = useState<string>('srv_cpe334_001');
 
-  // Attempt live survey sync on mount
   useEffect(() => {
-    async function fetchLiveSurveys() {
-      try {
-        const res = await fetch('/api/surveys');
-        if (res.ok) {
-          const body = await res.json();
-          if (body.data && Array.isArray(body.data) && body.data.length > 0) {
-            setSurveys(body.data);
-          }
-        }
-      } catch {
-        // Use initial mock surveys
-      }
+    try {
+      localStorage.setItem('unipulse_surveys_v1', JSON.stringify(surveys));
+    } catch {
+      // Ignore storage error
     }
-    fetchLiveSurveys();
-  }, []);
+  }, [surveys]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('unipulse_submitted_v1', JSON.stringify(Array.from(submittedSurveyIds)));
+    } catch {
+      // Ignore storage error
+    }
+  }, [submittedSurveyIds]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('unipulse_receipts_v1', JSON.stringify(receipts));
+    } catch {
+      // Ignore storage error
+    }
+  }, [receipts]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('unipulse_responses_v1', JSON.stringify(responsesBySurvey));
+    } catch {
+      // Ignore storage error
+    }
+  }, [responsesBySurvey]);
 
   const handleLogin = async (email: string, role?: UserRole, password = 'Password123!') => {
     setLoginError('');
@@ -301,16 +351,22 @@ function App() {
         }
         if (res.ok) {
           const rcptId = data.data?.receiptId || `rcpt_${Date.now()}`;
+          const targetId = selectedSurveyForTaking.id;
           setSubmittedSurveyIds((prev) => {
             const next = new Set(prev);
             next.add(submissionKey);
-            next.add(selectedSurveyForTaking.id);
+            next.add(targetId);
             return next;
           });
+          setResponsesBySurvey((prev) => ({
+            ...prev,
+            [targetId]: [...(prev[targetId] || []), answers],
+          }));
+          setActiveAnalyticsSurveyId(targetId);
           setReceipts((prev) => [
             {
               receiptId: rcptId,
-              surveyId: selectedSurveyForTaking.id,
+              surveyId: targetId,
               surveyTitle: selectedSurveyForTaking.title,
               submittedAt: new Date().toISOString(),
               answersCount: answers.length,
@@ -325,17 +381,23 @@ function App() {
     }
 
     // Local deterministic response recording
+    const targetId = selectedSurveyForTaking.id;
     const receiptId = `rcpt_${Date.now().toString(36).toUpperCase()}_${Math.floor(1000 + Math.random() * 9000)}`;
     setSubmittedSurveyIds((prev) => {
       const next = new Set(prev);
       next.add(submissionKey);
-      next.add(selectedSurveyForTaking.id);
+      next.add(targetId);
       return next;
     });
+    setResponsesBySurvey((prev) => ({
+      ...prev,
+      [targetId]: [...(prev[targetId] || []), answers],
+    }));
+    setActiveAnalyticsSurveyId(targetId);
     setReceipts((prev) => [
       {
         receiptId,
-        surveyId: selectedSurveyForTaking.id,
+        surveyId: targetId,
         surveyTitle: selectedSurveyForTaking.title,
         submittedAt: new Date().toISOString(),
         answersCount: answers.length,
@@ -353,6 +415,123 @@ function App() {
   const handleViewAnalyticsForSurvey = (surveyId: string) => {
     setActiveAnalyticsSurveyId(surveyId);
     setActiveTab('analytics');
+  };
+
+  const buildAnalyticsData = (surveyId: string): SurveyAnalyticsData => {
+    const targetSurvey = surveys.find((s) => s.id === surveyId) || surveys[0];
+    if (!targetSurvey) return DEFAULT_ANALYTICS_DATA;
+
+    const extraSubmissions = responsesBySurvey[targetSurvey.id] || [];
+    const isDefaultDemoSurvey = targetSurvey.id === 'srv_cpe334_001';
+    const baseTotal = isDefaultDemoSurvey ? DEFAULT_ANALYTICS_DATA.totalResponses : 0;
+
+    return {
+      surveyId: targetSurvey.id,
+      title: targetSurvey.title,
+      status: targetSurvey.status,
+      totalResponses: baseTotal + extraSubmissions.length,
+      questions: targetSurvey.questions.map((q) => {
+        const qAnswers = extraSubmissions
+          .map((ansList) => ansList.find((a) => a.questionId === q.id))
+          .filter((a): a is AnswerInput => !!a);
+
+        if (q.questionType === 'RATING') {
+          const baseDist: Record<string, number> = isDefaultDemoSurvey && q.id === 'qst_1'
+            ? { '1': 0, '2': 0, '3': 2, '4': 5, '5': 17 }
+            : { '1': 0, '2': 0, '3': 0, '4': 0, '5': 0 };
+
+          for (const a of qAnswers) {
+            if (a.ratingValue && a.ratingValue >= 1 && a.ratingValue <= 5) {
+              const key = String(a.ratingValue);
+              baseDist[key] = (baseDist[key] || 0) + 1;
+            }
+          }
+
+          let totalRatings = 0;
+          let weightedSum = 0;
+          for (const [star, count] of Object.entries(baseDist)) {
+            totalRatings += count;
+            weightedSum += Number(star) * count;
+          }
+          const averageScore = totalRatings > 0 ? Math.round((weightedSum / totalRatings) * 100) / 100 : 0;
+
+          return {
+            questionId: q.id,
+            prompt: q.prompt,
+            questionType: 'RATING',
+            summary: {
+              averageScore,
+              totalRatings,
+              distribution: baseDist,
+            },
+          };
+        }
+
+        if (q.questionType === 'SINGLE_CHOICE') {
+          const opts = q.options || [];
+          const countsByOpt: Record<string, number> = {};
+          for (const o of opts) {
+            countsByOpt[o.id] =
+              isDefaultDemoSurvey && q.id === 'qst_2'
+                ? o.id === 'opt_1'
+                  ? 18
+                  : o.id === 'opt_2'
+                  ? 6
+                  : 0
+                : 0;
+          }
+          for (const a of qAnswers) {
+            if (a.selectedOptionId && countsByOpt[a.selectedOptionId] !== undefined) {
+              countsByOpt[a.selectedOptionId] += 1;
+            }
+          }
+          const totalSelections = Object.values(countsByOpt).reduce((acc, c) => acc + c, 0);
+          return {
+            questionId: q.id,
+            prompt: q.prompt,
+            questionType: 'SINGLE_CHOICE',
+            summary: {
+              totalSelections,
+              options: opts.map((o) => {
+                const count = countsByOpt[o.id] || 0;
+                const percentage =
+                  totalSelections > 0 ? Math.round((count / totalSelections) * 1000) / 10 : 0;
+                return {
+                  optionId: o.id,
+                  label: o.label,
+                  count,
+                  percentage,
+                };
+              }),
+            },
+          };
+        }
+
+        // SHORT_TEXT
+        const baseTexts =
+          isDefaultDemoSurvey && q.id === 'qst_3'
+            ? [
+                'Excellent hands-on guide for CI/CD and Docker.',
+                'Would love more discussion on microservice architecture.',
+                'Great workshop structure!',
+              ]
+            : [];
+        const newTexts = qAnswers
+          .map((a) => a.textValue?.trim())
+          .filter((t): t is string => !!t && t.length > 0);
+        const allTexts = [...newTexts, ...baseTexts];
+
+        return {
+          questionId: q.id,
+          prompt: q.prompt,
+          questionType: 'SHORT_TEXT',
+          summary: {
+            totalAnswers: allTexts.length,
+            answers: allTexts,
+          },
+        };
+      }),
+    };
   };
 
   return (
@@ -621,6 +800,9 @@ function App() {
             {activeTab === 'owner_surveys' && (
               <OwnerSurveysView
                 surveys={surveys}
+                responseCounts={Object.fromEntries(
+                  surveys.map((s) => [s.id, buildAnalyticsData(s.id).totalResponses])
+                )}
                 onPublish={handlePublishSurvey}
                 onCloseSurvey={handleCloseSurvey}
                 onViewAnalytics={handleViewAnalyticsForSurvey}
@@ -652,14 +834,56 @@ function App() {
               />
             )}
 
-            {activeTab === 'analytics' && (
-              <div>
-                <SurveySummaryDashboard
-                  surveyId={activeAnalyticsSurveyId}
-                  initialData={DEFAULT_ANALYTICS_DATA}
-                />
-              </div>
-            )}
+            {activeTab === 'analytics' && (() => {
+              const activeAnalytics = buildAnalyticsData(activeAnalyticsSurveyId);
+              return (
+                <div>
+                  <div
+                    style={{
+                      maxWidth: '900px',
+                      margin: '0 auto',
+                      padding: '1rem 2rem 0 2rem',
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                    }}
+                  >
+                    <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#475569', marginRight: '0.25rem' }}>
+                      Select Survey:
+                    </span>
+                    {surveys.map((s) => {
+                      const count = buildAnalyticsData(s.id).totalResponses;
+                      const isSelected = activeAnalytics.surveyId === s.id;
+                      return (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() => setActiveAnalyticsSurveyId(s.id)}
+                          style={{
+                            padding: '0.4rem 0.85rem',
+                            borderRadius: '9999px',
+                            border: isSelected ? '2px solid #2563eb' : '1px solid #cbd5e1',
+                            backgroundColor: isSelected ? '#eff6ff' : '#ffffff',
+                            color: isSelected ? '#1d4ed8' : '#334155',
+                            fontSize: '0.82rem',
+                            fontWeight: isSelected ? 700 : 600,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {s.title} ({count})
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <SurveySummaryDashboard
+                    key={`${activeAnalytics.surveyId}-${activeAnalytics.totalResponses}-${activeAnalytics.status}`}
+                    surveyId={activeAnalytics.surveyId}
+                    initialData={activeAnalytics}
+                  />
+                </div>
+              );
+            })()}
           </>
         )}
       </main>
