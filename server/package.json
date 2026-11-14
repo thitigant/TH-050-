@@ -2,7 +2,7 @@
   "name": "unipulse-server",
   "version": "1.0.0",
   "private": true,
-  "description": "UniPulse – Campus Feedback & Course Survey Platform (CPE 334)",
+  "description": "UniPulse - Campus Feedback & Course Survey Platform (CPE 334)",
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
@@ -13,7 +13,7 @@
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
     "db:seed": "tsx prisma/seed.ts",
-    "test": "vitest run",
+    "test": "vitest run --no-file-parallelism",
     "test:watch": "vitest"
   },
   "dependencies": {
@@ -39,4 +39,3 @@
     "vitest": "^3.0.7"
   }
 }
-

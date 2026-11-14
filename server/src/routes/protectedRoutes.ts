@@ -10,16 +10,17 @@ import { Role } from '@prisma/client';
 
 const router = Router();
 
-// Test guard endpoints for role validation
+// Test guard endpoints for role validation (sanitized payload, never echo rawToken or jti)
 router.get(
   '/owner/protected',
   requireAuth,
   requireRole(Role.SURVEY_OWNER),
   (req: AuthenticatedRequest, res: Response) => {
+    const { id, email, role } = req.user!;
     res.status(200).json({
       data: {
         message: 'Owner access granted',
-        user: req.user,
+        user: { id, email, role },
       },
     });
   }
@@ -30,10 +31,11 @@ router.get(
   requireAuth,
   requireRole(Role.RESPONDENT),
   (req: AuthenticatedRequest, res: Response) => {
+    const { id, email, role } = req.user!;
     res.status(200).json({
       data: {
         message: 'Respondent access granted',
-        user: req.user,
+        user: { id, email, role },
       },
     });
   }

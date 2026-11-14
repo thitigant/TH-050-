@@ -28,9 +28,11 @@ app.use('/api/v1/surveys', surveyRoutes);
 app.use('/api/responses', responseRoutes);
 app.use('/api/v1/responses', responseRoutes);
 
-// Mount role & ownership protected routes
-app.use('/api', protectedRoutes);
-app.use('/api/v1', protectedRoutes);
+// Mount role & ownership protected test routes only outside production
+if (process.env.NODE_ENV !== 'production') {
+  app.use('/api', protectedRoutes);
+  app.use('/api/v1', protectedRoutes);
+}
 
 // 404 handler for unmatched routes
 app.use((_req: Request, res: Response) => {

@@ -2,7 +2,7 @@
   "name": "unipulse",
   "version": "1.0.0",
   "private": true,
-  "description": "UniPulse – Campus Feedback & Course Survey Platform (CPE 334)",
+  "description": "UniPulse - Campus Feedback & Course Survey Platform (CPE 334)",
   "scripts": {
     "dev:client": "npm --prefix client run dev",
     "dev:server": "npm --prefix server run dev",
@@ -16,4 +16,3 @@
     "prisma:seed": "npm --prefix server run db:seed"
   }
 }
-
