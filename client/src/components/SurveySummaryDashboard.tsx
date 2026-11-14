@@ -41,28 +41,43 @@ export interface SurveyAnalyticsData {
 interface Props {
   surveyId?: string;
   initialData?: SurveyAnalyticsData;
+  token?: string;
 }
 
-export const SurveySummaryDashboard: React.FC<Props> = ({ surveyId, initialData }) => {
+export const SurveySummaryDashboard: React.FC<Props> = ({ surveyId, initialData, token }) => {
   const [data, setData] = useState<SurveyAnalyticsData | null>(initialData || null);
   const [loading, setLoading] = useState<boolean>(!initialData && !!surveyId);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (initialData || !surveyId) return;
+    if (initialData) {
+      return;
+    }
+
+    if (!surveyId) {
+      return;
+    }
 
     let isMounted = true;
     const fetchAnalytics = async () => {
       try {
         setLoading(true);
         setError(null);
-        const token = localStorage.getItem('token');
-        const res = await fetch(`/api/surveys/${surveyId}/summary`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        });
+
+        const authToken = token || (typeof window !== 'undefined' ? localStorage.getItem('token') : null);
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+        };
+
+        if (authToken) {
+          headers['Authorization'] = `Bearer ${authToken}`;
+        }
+
+        const res = await fetch(`/api/surveys/${surveyId}/summary`, { headers });
+
+        if (res.status === 401) {
+          throw new Error('Session expired or unauthenticated. Please sign in again.');
+        }
 
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
@@ -75,7 +90,7 @@ export const SurveySummaryDashboard: React.FC<Props> = ({ surveyId, initialData 
         }
       } catch (err: unknown) {
         if (isMounted) {
-          setError(err instanceof Error ? err.message : 'Unknown error');
+          setError(err instanceof Error ? err.message : 'Unknown error occurred while fetching analytics');
         }
       } finally {
         if (isMounted) {
@@ -89,29 +104,40 @@ export const SurveySummaryDashboard: React.FC<Props> = ({ surveyId, initialData 
     return () => {
       isMounted = false;
     };
-  }, [surveyId, initialData]);
+  }, [surveyId, initialData, token]);
 
   if (loading) {
     return (
-      <div style={{ padding: '2rem', textAlign: 'center', fontFamily: 'sans-serif' }}>
-        <p>Loading survey aggregate results...</p>
+      <div style={{ padding: '2rem', textAlign: 'center', fontFamily: 'system-ui, sans-serif' }}>
+        <p style={{ color: '#64748b' }}>Loading survey aggregate results...</p>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div style={{ padding: '2rem', color: '#dc2626', fontFamily: 'sans-serif' }}>
-        <h3>Error loading results</h3>
-        <p>{error}</p>
+      <div
+        style={{
+          padding: '1.5rem',
+          margin: '1rem auto',
+          maxWidth: '900px',
+          backgroundColor: '#fef2f2',
+          border: '1px solid #fecaca',
+          borderRadius: '8px',
+          color: '#991b1b',
+          fontFamily: 'system-ui, sans-serif',
+        }}
+      >
+        <h3 style={{ margin: '0 0 0.5rem 0' }}>Unable to load results</h3>
+        <p style={{ margin: 0 }}>{error}</p>
       </div>
     );
   }
 
   if (!data) {
     return (
-      <div style={{ padding: '2rem', textAlign: 'center', fontFamily: 'sans-serif' }}>
-        <p>No survey data available.</p>
+      <div style={{ padding: '2rem', textAlign: 'center', fontFamily: 'system-ui, sans-serif' }}>
+        <p style={{ color: '#64748b' }}>No survey data available.</p>
       </div>
     );
   }
@@ -222,6 +248,11 @@ export const SurveySummaryDashboard: React.FC<Props> = ({ surveyId, initialData 
                                 }}
                               >
                                 <div
+                                  role="progressbar"
+                                  aria-valuenow={Math.round(pct)}
+                                  aria-valuemin={0}
+                                  aria-valuemax={100}
+                                  aria-label={`${star} stars: ${count} responses (${pct.toFixed(1)}%)`}
                                   style={{
                                     width: `${pct}%`,
                                     height: '100%',
@@ -265,6 +296,11 @@ export const SurveySummaryDashboard: React.FC<Props> = ({ surveyId, initialData 
                             }}
                           >
                             <div
+                              role="progressbar"
+                              aria-valuenow={Math.round(opt.percentage)}
+                              aria-valuemin={0}
+                              aria-valuemax={100}
+                              aria-label={`${opt.label}: ${opt.count} responses (${opt.percentage.toFixed(1)}%)`}
                               style={{
                                 width: `${opt.percentage}%`,
                                 height: '100%',

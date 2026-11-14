@@ -41,6 +41,8 @@ router.get('/:id/responses/me', requireAuth, (req, res, next) =>
 );
 
 // Aggregate Analytics & Summary routes (F-08 / F-12)
+// Note: /summary and /analytics are aliases to satisfy both Issue #7 scope (/summary)
+// and Sprint 1 SDS feature contract (/analytics) identically.
 router.get('/:id/analytics', requireAuth, requireRole(Role.SURVEY_OWNER), (req, res, next) =>
   analyticsController.getSurveySummary(req, res, next)
 );
