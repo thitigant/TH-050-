@@ -142,7 +142,7 @@ function App() {
     setSelectedSurveyForTaking(null);
   };
 
-  const handlePublishSurvey = (surveyId: string) => {
+  const handlePublishSurvey = async (surveyId: string) => {
     setSurveys((prev) =>
       prev.map((s) =>
         s.id === surveyId && s.questions.length > 0
@@ -150,20 +150,98 @@ function App() {
           : s
       )
     );
+    if (currentUser?.token) {
+      try {
+        await fetch(`/api/surveys/${surveyId}/publish`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${currentUser.token}` },
+        });
+      } catch {
+        // Ignore network error; UI state updated
+      }
+    }
   };
 
-  const handleCloseSurvey = (surveyId: string) => {
+  const handleCloseSurvey = async (surveyId: string) => {
     setSurveys((prev) =>
       prev.map((s) =>
         s.id === surveyId ? { ...s, status: 'CLOSED', closedAt: new Date().toISOString() } : s
       )
     );
+    if (currentUser?.token) {
+      try {
+        await fetch(`/api/surveys/${surveyId}/close`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${currentUser.token}` },
+        });
+      } catch {
+        // Ignore network error; UI state updated
+      }
+    }
   };
 
-  const handleCreateSurvey = (newSurveyData: Omit<Survey, 'id' | 'createdAt' | 'ownerId'>) => {
+  const handleCreateSurvey = async (newSurveyData: Omit<Survey, 'id' | 'createdAt' | 'ownerId'>) => {
+    let createdId = `srv_${Date.now()}`;
+    let mappedQuestions = newSurveyData.questions;
+
+    if (currentUser?.token) {
+      try {
+        const createRes = await fetch('/api/surveys', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${currentUser.token}`,
+          },
+          body: JSON.stringify({
+            title: newSurveyData.title,
+            description: newSurveyData.description,
+            questions: newSurveyData.questions.map((q, idx) => ({
+              text: q.prompt,
+              type: q.questionType,
+              isRequired: q.isRequired,
+              displayOrder: idx + 1,
+              options: q.options?.map((o) => o.label),
+            })),
+          }),
+        });
+        if (createRes.ok) {
+          const createBody = await createRes.json();
+          const dbSurvey = createBody.data;
+          if (dbSurvey?.id) {
+            createdId = dbSurvey.id;
+            if (Array.isArray(dbSurvey.Question)) {
+              mappedQuestions = dbSurvey.Question.map((dbQ: any, i: number) => ({
+                id: dbQ.id,
+                prompt: dbQ.text,
+                questionType: dbQ.type,
+                isRequired: dbQ.isRequired,
+                order: dbQ.displayOrder ?? i + 1,
+                options: Array.isArray(dbQ.QuestionOption)
+                  ? dbQ.QuestionOption.map((dbO: any, oi: number) => ({
+                      id: dbO.id,
+                      label: dbO.label,
+                      order: dbO.displayOrder ?? oi + 1,
+                    }))
+                  : undefined,
+              }));
+            }
+            if (newSurveyData.status === 'PUBLISHED') {
+              await fetch(`/api/surveys/${createdId}/publish`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${currentUser.token}` },
+              });
+            }
+          }
+        }
+      } catch {
+        // Fallback to local ID
+      }
+    }
+
     const newSurvey: Survey = {
       ...newSurveyData,
-      id: `srv_${Date.now()}`,
+      id: createdId,
+      questions: mappedQuestions,
       ownerId: currentUser?.id || 'usr_owner_1',
       createdAt: new Date().toISOString(),
     };
@@ -176,8 +254,10 @@ function App() {
   ): Promise<{ success: boolean; error?: string; receiptId?: string }> => {
     if (!selectedSurveyForTaking) return { success: false, error: 'No survey selected' };
 
+    const submissionKey = `${currentUser?.email || 'student'}:${selectedSurveyForTaking.id}`;
+
     // Duplicate prevention check (BR-07)
-    if (submittedSurveyIds.has(selectedSurveyForTaking.id)) {
+    if (submittedSurveyIds.has(submissionKey) || submittedSurveyIds.has(selectedSurveyForTaking.id)) {
       return {
         success: false,
         error: `HTTP 409 Conflict: Duplicate submission rejected. Respondent (${currentUser?.email || 'student'}) has already submitted a response to this survey.`,
@@ -193,28 +273,52 @@ function App() {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${currentUser.token}`,
           },
-          body: JSON.stringify({ answers }),
+          body: JSON.stringify({
+            answers: answers.map((a) => ({
+              ...a,
+              numericValue: a.ratingValue,
+            })),
+          }),
         });
         const data = await res.json();
         if (res.status === 409) {
-          return { success: false, error: `HTTP 409 Conflict: ${data.error?.message || 'Duplicate submission detected'}` };
+          setSubmittedSurveyIds((prev) => {
+            const next = new Set(prev);
+            next.add(submissionKey);
+            next.add(selectedSurveyForTaking.id);
+            return next;
+          });
+          return {
+            success: false,
+            error: `HTTP 409 Conflict: ${data.error?.message || 'Duplicate submission detected'}`,
+          };
         }
-        if (!res.ok) {
-          return { success: false, error: `HTTP ${res.status}: ${data.error?.message || 'Submission failed'}` };
+        if (res.status === 422 || res.status === 403) {
+          return {
+            success: false,
+            error: `HTTP ${res.status}: ${data.error?.message || 'Validation failed'}`,
+          };
         }
-        const rcptId = data.data?.receiptId || `rcpt_${Date.now()}`;
-        setSubmittedSurveyIds((prev) => new Set(prev).add(selectedSurveyForTaking.id));
-        setReceipts((prev) => [
-          {
-            receiptId: rcptId,
-            surveyId: selectedSurveyForTaking.id,
-            surveyTitle: selectedSurveyForTaking.title,
-            submittedAt: new Date().toISOString(),
-            answersCount: answers.length,
-          },
-          ...prev,
-        ]);
-        return { success: true, receiptId: rcptId };
+        if (res.ok) {
+          const rcptId = data.data?.receiptId || `rcpt_${Date.now()}`;
+          setSubmittedSurveyIds((prev) => {
+            const next = new Set(prev);
+            next.add(submissionKey);
+            next.add(selectedSurveyForTaking.id);
+            return next;
+          });
+          setReceipts((prev) => [
+            {
+              receiptId: rcptId,
+              surveyId: selectedSurveyForTaking.id,
+              surveyTitle: selectedSurveyForTaking.title,
+              submittedAt: new Date().toISOString(),
+              answersCount: answers.length,
+            },
+            ...prev,
+          ]);
+          return { success: true, receiptId: rcptId };
+        }
       } catch {
         // Fallback to local response recording
       }
@@ -222,7 +326,12 @@ function App() {
 
     // Local deterministic response recording
     const receiptId = `rcpt_${Date.now().toString(36).toUpperCase()}_${Math.floor(1000 + Math.random() * 9000)}`;
-    setSubmittedSurveyIds((prev) => new Set(prev).add(selectedSurveyForTaking.id));
+    setSubmittedSurveyIds((prev) => {
+      const next = new Set(prev);
+      next.add(submissionKey);
+      next.add(selectedSurveyForTaking.id);
+      return next;
+    });
     setReceipts((prev) => [
       {
         receiptId,
