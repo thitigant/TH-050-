@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { surveyController } from '../controllers/surveyController.js';
 import { responseController } from '../controllers/responseController.js';
+import { analyticsController } from '../controllers/analyticsController.js';
 import { requireAuth, requireRole } from '../middleware/authMiddleware.js';
 import { Role } from '@prisma/client';
 
@@ -37,6 +38,17 @@ router.post('/:id/responses', requireAuth, (req, res, next) =>
 
 router.get('/:id/responses/me', requireAuth, (req, res, next) =>
   responseController.getMyResponse(req, res, next)
+);
+
+// Aggregate Analytics & Summary routes (F-08 / F-12)
+// Note: /summary and /analytics are aliases to satisfy both Issue #7 scope (/summary)
+// and Sprint 1 SDS feature contract (/analytics) identically.
+router.get('/:id/analytics', requireAuth, requireRole(Role.SURVEY_OWNER), (req, res, next) =>
+  analyticsController.getSurveySummary(req, res, next)
+);
+
+router.get('/:id/summary', requireAuth, requireRole(Role.SURVEY_OWNER), (req, res, next) =>
+  analyticsController.getSurveySummary(req, res, next)
 );
 
 export default router;
