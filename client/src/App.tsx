@@ -7,7 +7,6 @@ import { SurveyTakingView } from './components/SurveyTakingView.js';
 import { OwnerSurveysView } from './components/OwnerSurveysView.js';
 import { CreateSurveyView } from './components/CreateSurveyView.js';
 import { ReceiptsView } from './components/ReceiptsView.js';
-import { RbacDemoView } from './components/RbacDemoView.js';
 import { SurveySummaryDashboard, type SurveyAnalyticsData } from './components/SurveySummaryDashboard.js';
 import './App.css';
 
@@ -549,10 +548,6 @@ function App() {
                   initialData={DEFAULT_ANALYTICS_DATA}
                 />
               </div>
-            )}
-
-            {activeTab === 'rbac_demo' && (
-              <RbacDemoView currentUser={currentUser} />
             )}
           </>
         )}

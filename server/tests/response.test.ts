@@ -28,6 +28,7 @@ describe('F-06 & F-07 Response Submission and Duplicate Prevention', () => {
   let choiceOption2Id: string;
   let textQuestionId: string;
   let optionalTextQuestionId: string;
+  let concurrencyQuestionId: string;
 
   let createdResponseId: string;
 
@@ -189,6 +190,7 @@ describe('F-06 & F-07 Response Submission and Duplicate Prevention', () => {
     expiredSurveyId = sExpired.id;
 
     // 5. Create a survey for concurrency test
+    concurrencyQuestionId = `qst_concur_${timestamp}`;
     const sConcurrency = await prisma.survey.create({
       data: {
         id: `srv_resp_concur_${timestamp}`,
@@ -201,7 +203,7 @@ describe('F-06 & F-07 Response Submission and Duplicate Prevention', () => {
         Question: {
           create: [
             {
-              id: `qst_concur_${timestamp}`,
+              id: concurrencyQuestionId,
               text: 'Feedback',
               type: 'SHORT_TEXT',
               isRequired: true,
@@ -431,63 +433,6 @@ describe('F-06 & F-07 Response Submission and Duplicate Prevention', () => {
       expect(res.body.error.code).toBe('INVALID_PAYLOAD');
     });
 
-    it('should skip storing empty answer rows for optional questions', async () => {
-      // student2 submits without filling optional question
-      const res = await request(app)
-        .post(`/api/surveys/${publishedSurveyId}/responses`)
-        .set('Authorization', `Bearer ${student2Token}`)
-        .send({
-          answers: [
-            { questionId: ratingQuestionId, numericValue: 4 },
-            { questionId: choiceQuestionId, selectedOptionId: choiceOption2Id },
-            { questionId: textQuestionId, textValue: 'Valid response without optional answer' },
-            { questionId: optionalTextQuestionId, textValue: null }, // empty optional answer
-          ],
-        });
-
-      expect(res.status).toBe(201);
-      // Only 3 answers recorded (empty optional row was skipped)
-      expect(res.body.data.answersRecorded).toBe(3);
-    });
-
-    it('BR-06 concurrency: should gracefully handle parallel submissions where only one succeeds (409 for second)', async () => {
-      // Create a fresh student token for parallel submission on concurrency survey
-      const [res1, res2] = await Promise.all([
-        request(app)
-          .post(`/api/surveys/${concurrencySurveyId}/responses`)
-          .set('Authorization', `Bearer ${student1Token}`)
-          .send({
-            answers: [
-              { questionId: `qst_concur_${Date.now()}`, textValue: 'Concurrent attempt 1' },
-            ],
-          }),
-        request(app)
-          .post(`/api/surveys/${concurrencySurveyId}/responses`)
-          .set('Authorization', `Bearer ${student1Token}`)
-          .send({
-            answers: [
-              { questionId: `qst_concur_${Date.now()}`, textValue: 'Concurrent attempt 2' },
-            ],
-          }),
-      ]);
-
-      const statuses = [res1.status, res2.status].sort();
-      // One request should succeed (201) and one should be rejected as duplicate (409)
-      expect(statuses).toEqual([201, 409]);
-    });
-
-    it('should reject missing required question with 422 EMPTY_REQUIRED_ANSWER', async () => {
-      const res = await request(app)
-        .post(`/api/surveys/${concurrencySurveyId}/responses`)
-        .set('Authorization', `Bearer ${student2Token}`)
-        .send({
-          answers: [],
-        });
-
-      expect(res.status).toBe(422);
-      expect(res.body.error.code).toBe('EMPTY_REQUIRED_ANSWER');
-    });
-
     it('should reject invalid option ID for single choice question with 422 INVALID_OPTION_SELECTED', async () => {
       const res = await request(app)
         .post(`/api/surveys/${publishedSurveyId}/responses`)
@@ -516,6 +461,63 @@ describe('F-06 & F-07 Response Submission and Duplicate Prevention', () => {
 
       expect(res.status).toBe(422);
       expect(res.body.error.code).toBe('INVALID_QUESTION');
+    });
+
+    it('should skip storing empty answer rows for optional questions', async () => {
+      // student2 submits without filling optional question
+      const res = await request(app)
+        .post(`/api/surveys/${publishedSurveyId}/responses`)
+        .set('Authorization', `Bearer ${student2Token}`)
+        .send({
+          answers: [
+            { questionId: ratingQuestionId, numericValue: 4 },
+            { questionId: choiceQuestionId, selectedOptionId: choiceOption2Id },
+            { questionId: textQuestionId, textValue: 'Valid response without optional answer' },
+            { questionId: optionalTextQuestionId, textValue: null }, // empty optional answer
+          ],
+        });
+
+      expect(res.status).toBe(201);
+      // Only 3 answers recorded (empty optional row was skipped)
+      expect(res.body.data.answersRecorded).toBe(3);
+    });
+
+    it('BR-06 concurrency: should gracefully handle parallel submissions where only one succeeds (409 for second)', async () => {
+      // Create a fresh student token for parallel submission on concurrency survey
+      const [res1, res2] = await Promise.all([
+        request(app)
+          .post(`/api/surveys/${concurrencySurveyId}/responses`)
+          .set('Authorization', `Bearer ${student1Token}`)
+          .send({
+            answers: [
+              { questionId: concurrencyQuestionId, textValue: 'Concurrent attempt 1' },
+            ],
+          }),
+        request(app)
+          .post(`/api/surveys/${concurrencySurveyId}/responses`)
+          .set('Authorization', `Bearer ${student1Token}`)
+          .send({
+            answers: [
+              { questionId: concurrencyQuestionId, textValue: 'Concurrent attempt 2' },
+            ],
+          }),
+      ]);
+
+      const statuses = [res1.status, res2.status].sort();
+      // One request should succeed (201) and one should be rejected as duplicate (409)
+      expect(statuses).toEqual([201, 409]);
+    });
+
+    it('should reject missing required question with 422 EMPTY_REQUIRED_ANSWER', async () => {
+      const res = await request(app)
+        .post(`/api/surveys/${concurrencySurveyId}/responses`)
+        .set('Authorization', `Bearer ${student2Token}`)
+        .send({
+          answers: [],
+        });
+
+      expect(res.status).toBe(422);
+      expect(res.body.error.code).toBe('EMPTY_REQUIRED_ANSWER');
     });
 
     it('should return 404 for non-existent survey', async () => {

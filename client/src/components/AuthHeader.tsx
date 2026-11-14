@@ -190,17 +190,6 @@ export function AuthHeader({
                   />
                   Analytics Dashboard
                 </button>
-                <button
-                  type="button"
-                  onClick={() => onSelectTab('rbac_demo')}
-                  style={tabStyle(activeTab === 'rbac_demo')}
-                >
-                  <i
-                    className="fa-solid fa-shield-halved"
-                    style={{ marginRight: '0.4rem' }}
-                  />
-                  Role Guards (RBAC Demo)
-                </button>
               </>
             ) : (
               <>
@@ -236,17 +225,6 @@ export function AuthHeader({
                     style={{ marginRight: '0.4rem' }}
                   />
                   Public Results Summary
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onSelectTab('rbac_demo')}
-                  style={tabStyle(activeTab === 'rbac_demo')}
-                >
-                  <i
-                    className="fa-solid fa-shield-halved"
-                    style={{ marginRight: '0.4rem' }}
-                  />
-                  Role Guards (RBAC Demo)
                 </button>
               </>
             )}
