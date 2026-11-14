@@ -101,6 +101,15 @@ function App() {
     }
     return {};
   });
+  const [backendSummaries, setBackendSummaries] = useState<Record<string, SurveyAnalyticsData>>(() => {
+    try {
+      const saved = localStorage.getItem('unipulse_backend_summaries_v1');
+      if (saved) return JSON.parse(saved);
+    } catch {
+      // Ignore storage error
+    }
+    return {};
+  });
   const [activeAnalyticsSurveyId, setActiveAnalyticsSurveyId] = useState<string>('srv_cpe334_001');
 
   useEffect(() => {
@@ -135,6 +144,102 @@ function App() {
     }
   }, [responsesBySurvey]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem('unipulse_backend_summaries_v1', JSON.stringify(backendSummaries));
+    } catch {
+      // Ignore storage error
+    }
+  }, [backendSummaries]);
+
+  const syncStudentResponseForSurvey = async (survey: Survey, token: string, email: string) => {
+    try {
+      const res = await fetch(`/api/surveys/${survey.id}/responses/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const body = await res.json();
+      const resp = body?.data;
+      if (!resp || !resp.id) return;
+
+      const submissionKey = `${email}:${survey.id}`;
+      setSubmittedSurveyIds((prev) => {
+        const next = new Set(prev);
+        next.add(submissionKey);
+        next.add(survey.id);
+        return next;
+      });
+
+      const dbAnswers: AnswerInput[] = Array.isArray(resp.Answer)
+        ? resp.Answer.map((a: any) => ({
+            questionId: a.questionId,
+            ratingValue: a.ratingValue ?? undefined,
+            selectedOptionId: a.selectedOptionId ?? undefined,
+            textValue: a.textValue ?? undefined,
+          }))
+        : [];
+
+      setReceipts((prev) => {
+        const exists = prev.some((r) => r.receiptId === resp.id || r.surveyId === survey.id);
+        if (exists) return prev;
+        return [
+          {
+            receiptId: resp.id,
+            surveyId: survey.id,
+            surveyTitle: resp.Survey?.title || survey.title,
+            submittedAt: resp.submittedAt || new Date().toISOString(),
+            answersCount: dbAnswers.length || survey.questions.length,
+          },
+          ...prev,
+        ];
+      });
+
+      if (dbAnswers.length > 0) {
+        setResponsesBySurvey((prev) => {
+          const existing = prev[survey.id] || [];
+          if (existing.length > 0) return prev;
+          return {
+            ...prev,
+            [survey.id]: [dbAnswers],
+          };
+        });
+      }
+    } catch {
+      // Ignore network error
+    }
+  };
+
+  const syncOwnerSummaryForSurvey = async (surveyId: string, token: string) => {
+    try {
+      const res = await fetch(`/api/surveys/${surveyId}/summary`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const body = await res.json();
+      if (body?.data && typeof body.data.totalResponses === 'number') {
+        setBackendSummaries((prev) => ({
+          ...prev,
+          [surveyId]: body.data,
+        }));
+      }
+    } catch {
+      // Ignore network error
+    }
+  };
+
+  const syncUserSessionData = (user: AuthUser) => {
+    if (!user.token) return;
+    if (user.role === 'RESPONDENT') {
+      for (const s of surveys) {
+        void syncStudentResponseForSurvey(s, user.token, user.email);
+      }
+    } else if (user.role === 'SURVEY_OWNER') {
+      for (const s of surveys) {
+        void syncOwnerSummaryForSurvey(s.id, user.token);
+      }
+    }
+  };
+
   const handleLogin = async (email: string, role?: UserRole, password = 'Password123!') => {
     setLoginError('');
     setIsLoggingIn(true);
@@ -156,12 +261,14 @@ function App() {
       }
 
       finalRole = data.data.user.role || inferredRole;
-      setCurrentUser({
+      const loggedInUser: AuthUser = {
         id: data.data.user.id,
         email: data.data.user.email,
         role: finalRole,
         token: data.data.token,
-      });
+      };
+      setCurrentUser(loggedInUser);
+      syncUserSessionData(loggedInUser);
 
       if (finalRole === 'SURVEY_OWNER') {
         setActiveTab('owner_surveys');
@@ -338,6 +445,11 @@ function App() {
             next.add(selectedSurveyForTaking.id);
             return next;
           });
+          await syncStudentResponseForSurvey(
+            selectedSurveyForTaking,
+            currentUser.token,
+            currentUser.email
+          );
           return {
             success: false,
             error: `HTTP 409 Conflict: ${data.error?.message || 'Duplicate submission detected'}`,
@@ -350,7 +462,7 @@ function App() {
           };
         }
         if (res.ok) {
-          const rcptId = data.data?.receiptId || `rcpt_${Date.now()}`;
+          const rcptId = data.data?.responseId || data.data?.receiptId || `rcpt_${Date.now()}`;
           const targetId = selectedSurveyForTaking.id;
           setSubmittedSurveyIds((prev) => {
             const next = new Set(prev);
@@ -422,28 +534,43 @@ function App() {
     if (!targetSurvey) return DEFAULT_ANALYTICS_DATA;
 
     const extraSubmissions = responsesBySurvey[targetSurvey.id] || [];
+    const dbSummary = backendSummaries[targetSurvey.id];
+    const useDbSummary = !!dbSummary && dbSummary.totalResponses > extraSubmissions.length;
     const isDefaultDemoSurvey = targetSurvey.id === 'srv_cpe334_001';
     const baseTotal = isDefaultDemoSurvey ? DEFAULT_ANALYTICS_DATA.totalResponses : 0;
+    const addedCount = useDbSummary ? dbSummary.totalResponses : extraSubmissions.length;
 
     return {
       surveyId: targetSurvey.id,
       title: targetSurvey.title,
       status: targetSurvey.status,
-      totalResponses: baseTotal + extraSubmissions.length,
+      totalResponses: baseTotal + addedCount,
       questions: targetSurvey.questions.map((q) => {
         const qAnswers = extraSubmissions
           .map((ansList) => ansList.find((a) => a.questionId === q.id))
           .filter((a): a is AnswerInput => !!a);
+        const dbQ = useDbSummary
+          ? dbSummary.questions.find((dq) => dq.questionId === q.id)
+          : undefined;
 
         if (q.questionType === 'RATING') {
           const baseDist: Record<string, number> = isDefaultDemoSurvey && q.id === 'qst_1'
             ? { '1': 0, '2': 0, '3': 2, '4': 5, '5': 17 }
             : { '1': 0, '2': 0, '3': 0, '4': 0, '5': 0 };
 
-          for (const a of qAnswers) {
-            if (a.ratingValue && a.ratingValue >= 1 && a.ratingValue <= 5) {
-              const key = String(a.ratingValue);
-              baseDist[key] = (baseDist[key] || 0) + 1;
+          if (dbQ && dbQ.questionType === 'RATING') {
+            const dbRating = dbQ.summary as { distribution?: Record<string, number> };
+            if (dbRating.distribution) {
+              for (const [star, count] of Object.entries(dbRating.distribution)) {
+                baseDist[star] = (baseDist[star] || 0) + (count || 0);
+              }
+            }
+          } else {
+            for (const a of qAnswers) {
+              if (a.ratingValue && a.ratingValue >= 1 && a.ratingValue <= 5) {
+                const key = String(a.ratingValue);
+                baseDist[key] = (baseDist[key] || 0) + 1;
+              }
             }
           }
 
@@ -480,9 +607,18 @@ function App() {
                   : 0
                 : 0;
           }
-          for (const a of qAnswers) {
-            if (a.selectedOptionId && countsByOpt[a.selectedOptionId] !== undefined) {
-              countsByOpt[a.selectedOptionId] += 1;
+          if (dbQ && dbQ.questionType === 'SINGLE_CHOICE') {
+            const dbChoice = dbQ.summary as { options?: Array<{ optionId: string; count: number }> };
+            for (const dbOpt of dbChoice.options || []) {
+              if (countsByOpt[dbOpt.optionId] !== undefined) {
+                countsByOpt[dbOpt.optionId] += dbOpt.count || 0;
+              }
+            }
+          } else {
+            for (const a of qAnswers) {
+              if (a.selectedOptionId && countsByOpt[a.selectedOptionId] !== undefined) {
+                countsByOpt[a.selectedOptionId] += 1;
+              }
             }
           }
           const totalSelections = Object.values(countsByOpt).reduce((acc, c) => acc + c, 0);
@@ -516,9 +652,12 @@ function App() {
                 'Great workshop structure!',
               ]
             : [];
-        const newTexts = qAnswers
-          .map((a) => a.textValue?.trim())
-          .filter((t): t is string => !!t && t.length > 0);
+        const newTexts =
+          dbQ && dbQ.questionType === 'SHORT_TEXT'
+            ? ((dbQ.summary as { answers?: string[] }).answers || [])
+            : qAnswers
+                .map((a) => a.textValue?.trim())
+                .filter((t): t is string => !!t && t.length > 0);
         const allTexts = [...newTexts, ...baseTexts];
 
         return {
@@ -542,6 +681,9 @@ function App() {
         onSelectTab={(tab) => {
           setActiveTab(tab);
           setSelectedSurveyForTaking(null);
+          if (currentUser) {
+            syncUserSessionData(currentUser);
+          }
         }}
         onLogin={handleLogin}
         onLogout={handleLogout}
