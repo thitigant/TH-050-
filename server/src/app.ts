@@ -4,6 +4,7 @@ import cors from 'cors';
 import authRoutes from './routes/authRoutes.js';
 import protectedRoutes from './routes/protectedRoutes.js';
 import surveyRoutes from './routes/surveyRoutes.js';
+import responseRoutes from './routes/responseRoutes.js';
 
 export const app = express();
 
@@ -22,6 +23,10 @@ app.use('/api/v1/auth', authRoutes);
 // Mount survey management routes
 app.use('/api/surveys', surveyRoutes);
 app.use('/api/v1/surveys', surveyRoutes);
+
+// Mount response receipts routes
+app.use('/api/responses', responseRoutes);
+app.use('/api/v1/responses', responseRoutes);
 
 // Mount role & ownership protected routes
 app.use('/api', protectedRoutes);

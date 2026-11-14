@@ -2,31 +2,8 @@ import { Response, NextFunction } from 'express';
 import { AuthenticatedRequest } from '../middleware/authMiddleware.js';
 import { createSurveySchema } from '../validators/surveyValidator.js';
 import { surveyService } from '../services/surveyService.js';
-import { AppError } from '../utils/errors.js';
+import { AppError, handleControllerError } from '../utils/errors.js';
 import { Role } from '@prisma/client';
-
-function handleControllerError(error: unknown, res: Response, next: NextFunction): void {
-  if (error instanceof AppError) {
-    res.status(error.statusCode).json({
-      error: {
-        code: error.code,
-        message: error.message,
-      },
-    });
-    return;
-  }
-  if (typeof error === 'object' && error !== null && 'statusCode' in error) {
-    const err = error as { statusCode: number; code?: string; message?: string };
-    res.status(err.statusCode).json({
-      error: {
-        code: err.code || 'SURVEY_ERROR',
-        message: err.message || 'An error occurred',
-      },
-    });
-    return;
-  }
-  next(error);
-}
 
 export class SurveyController {
   async createSurvey(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
